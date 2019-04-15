@@ -50,9 +50,20 @@ class YOLO(nn.Module):
                 net.layers.append(
                     net.activation_functions[layer.config["activation"]]
                 )
-            else:
-                print(ltype)
+            elif ltype == "Shortcut":
+                # TODO
                 raise KeyError(ltype + " isn't implemented yet!")
+            elif ltype == "Yolo":
+                # TODO
+                raise KeyError(ltype + " isn't implemented yet!")
+            elif ltype == "Route":
+                # TODO
+                raise KeyError(ltype + " isn't implemented yet!")
+            elif ltype == "Upsample":
+                # TODO
+                raise KeyError(ltype + " isn't implemented yet!")
+            else:
+                raise KeyError(ltype + " isn't implemented!")
 
     def __get_layer_names(self):
         return [type(x).__name__ for x in self.layers]
