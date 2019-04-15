@@ -124,12 +124,15 @@ class Upsample(Layer):
         self.config[attr[0]] = types[attr[0]](attr[1])
 
 
-class ConfigReader:
+class Config:
     def __init__(self):
-        pass
+        self.layers = []
+
+    def iterate_layers(self):
+        for layer in self.layers:
+            yield layer
 
     def __parse(self, filename):
-        layers = []
         with open(filename, "r") as f:
             config = f.read()
         config = re.split(r"(?=\[[\w\s]+\]\n)", config)
@@ -141,8 +144,7 @@ class ConfigReader:
             layer = self.__layer_from_name(match.group(1))
             for line in self.__block_generator(block_list[1:]):
                 layer.get_attr(line)
-            layers.append(layer)
-        print([layer.name for layer in layers])
+            self.layers.append(layer)
 
     def read(self, filename):
         self.__parse(filename)
