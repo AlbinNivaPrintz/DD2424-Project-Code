@@ -3,6 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 import configreader as cr
+import numpy as np
 
 
 class YOLO(nn.Module):
@@ -133,12 +134,28 @@ class YOLO(nn.Module):
                     grid_size = this_block.size(2)
                     label_dim = 5 + self.n_classes
                     anchors = [mod.config["anchors"][i] for i in mod.config["mask"]]
-
+                    # Make anchors relative to grid
+                    anchors = torch.tensor([[anchor[0]/scale, anchor[1]/scale] for anchor in anchors])
+                    expanded_anchors = anchors.repeat(1, grid_size * grid_size, 1)
+                    # Desired format (bx, by, bw, bh, c, pc1, ..., pcC) of length label_dim
+                    formatted = this_block.view((n_batch, len(anchors)*label_dim, grid_size*grid_size))
+                    formatted = formatted.transpose(1, 2).contiguous()
+                    formatted = formatted.view((n_batch, grid_size*grid_size*len(anchors), label_dim))
+                    # Transform t_x to b_x
+                    c_x = np.repeat(np.arange(0, grid_size), grid_size).reshape((-1, 1))
+                    c_y = np.tile(np.arange(0, grid_size), grid_size).reshape((-1, 1))
+                    c_x_y = np.hstack((c_x, c_y)).repeat(len(anchors), axis=0)
+                    c_x_y = torch.from_numpy(c_x_y).view((n_batch, grid_size*grid_size*len(anchors), 2))
+                    formatted[:, :, 0:2] = torch.sigmoid(formatted[:, :, 0:2]) + c_x_y.float()
+                    formatted[:, :, 4] = torch.sigmoid(formatted[:, :, 4])
+                    formatted[:, :, 2:4] = expanded_anchors * torch.exp(formatted[:, :, 2:4])
+                    formatted[:, :, 5:] = torch.sigmoid(formatted[:, :, 5:])
+                    formatted[:, :, :4] = formatted[:, :, :4]
                     if output is None:
-                        output = this_block.view((n_batch, grid_size*grid_size, len(anchors)*label_dim))
+                        output = formatted
                     else:
                         output = torch.cat(
-                            (output, this_block.view((n_batch, grid_size*grid_size, len(anchors)*label_dim))),
+                            (output, formatted),
                             dim=1
                         )
                 elif isinstance(mod, cr.Upsample):
