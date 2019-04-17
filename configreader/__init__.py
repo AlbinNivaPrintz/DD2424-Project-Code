@@ -141,7 +141,7 @@ class Config:
             match = re.match(r"\[([\w\s]+)\]", block_list[0])
             if match is None:
                 continue
-            layer = self.__layer_from_name(match.group(1))
+            layer = self.__layer_from_name(match.group(1))()
             for line in self.__block_generator(block_list[1:]):
                 layer.get_attr(line)
             self.layers.append(layer)
@@ -157,12 +157,12 @@ class Config:
     def __layer_from_name(self, name):
         layers = {
             "": None,
-            "net": Net(),
-            "convolutional": Convolutional(),
-            "shortcut": Shortcut(),
-            "yolo": Yolo(),
-            "route": Route(),
-            "upsample": Upsample(),
+            "net": Net,
+            "convolutional": Convolutional,
+            "shortcut": Shortcut,
+            "yolo": Yolo,
+            "route": Route,
+            "upsample": Upsample,
         }
         return layers[name]
 
