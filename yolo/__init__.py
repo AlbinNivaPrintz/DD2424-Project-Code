@@ -12,8 +12,10 @@ class YOLO(nn.Module):
     def __init__(self):
         super(YOLO, self).__init__()
         self.optimizer = None
-        self.channels = None
+        self.channels = 0
+        self.n_classes = 0
         self.layers = []
+        self.im_size = (0, 0)
 
     @classmethod
     def from_config(cls, config):
@@ -31,6 +33,7 @@ class YOLO(nn.Module):
             if ltype == "Net":
                 # TODO Parse and understand all net settings
                 self.channels = layer.config["channels"]
+                self.im_size = (layer.config["width"], layer.config["height"])
                 current_channels = self.channels
                 # Call this last?
                 # optimizer_cfg = {
@@ -64,6 +67,10 @@ class YOLO(nn.Module):
                 self.layers.append([layer])
             elif ltype == "Yolo":
                 outfilters.append(0)
+                # Weird config thing with classes being detection layer specific
+                if self.n_classes != layer.config["classes"] and self.n_classes != 0:
+                    print("There are different numbers of classes in the yolo layers. Just so you know.")
+                self.n_classes = layer.config["classes"]
                 self.layers.append([layer])
             elif ltype == "Route":
                 if layer.config["layers"][0] < 0:
@@ -121,7 +128,19 @@ class YOLO(nn.Module):
                 elif isinstance(mod, cr.Shortcut):
                     this_block = this_block + block_record[i+mod.config["from"]+1]
                 elif isinstance(mod, cr.Yolo):
-                    output = 0  # FIXME Dummy output
+                    n_batch = this_block.size(0)
+                    scale = self.im_size[0] // this_block.size(2)
+                    grid_size = this_block.size(2)
+                    label_dim = 5 + self.n_classes
+                    anchors = [mod.config["anchors"][i] for i in mod.config["mask"]]
+
+                    if output is None:
+                        output = this_block.view((n_batch, grid_size*grid_size, len(anchors)*label_dim))
+                    else:
+                        output = torch.cat(
+                            (output, this_block.view((n_batch, grid_size*grid_size, len(anchors)*label_dim))),
+                            dim=1
+                        )
                 elif isinstance(mod, cr.Upsample):
                     this_block = F.interpolate(
                         this_block,

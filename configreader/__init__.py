@@ -88,7 +88,7 @@ class Yolo(Layer):
         attr = attr.replace(" ", "").split("=")
         if attr[0] in ["mask"]:
             values = attr[1].split(",")
-            self.config[attr[0]] = tuple([ types[attr[0]](x) for x in values ])
+            self.config[attr[0]] = tuple([ types[attr[0]](x) - 1 for x in values ])
         elif attr[0] in ["anchors"]:
             values = re.findall(r"\,".join([r"[^\,]+"] * 2), attr[1])
             self.config[attr[0]] = [ tuple([ types[attr[0]](x) for x in y.split(",") ]) for y in values ]
