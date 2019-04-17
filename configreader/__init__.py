@@ -4,7 +4,7 @@ class Layer:
     def __init__(self):
         raise NotImplementedError
     
-    def get_attr(self, attr):
+    def load_attr(self, attr):
         raise NotImplementedError
 
 class Net(Layer):
@@ -12,7 +12,7 @@ class Net(Layer):
         self.name = "Net"
         self.config = {}
 
-    def get_attr(self, attr):
+    def load_attr(self, attr):
         types = {
             "momentum": float,
             "batch": int,
@@ -44,7 +44,7 @@ class Convolutional(Layer):
         self.name = "Convolutional"
         self.config = {}
 
-    def get_attr(self, attr):
+    def load_attr(self, attr):
         types = {
             "batch_normalize": int,
             "filters": int,
@@ -61,7 +61,7 @@ class Shortcut(Layer):
         self.name = "Shortcut"
         self.config = {}
 
-    def get_attr(self, attr):
+    def load_attr(self, attr):
         types = {
             "from": int,
             "activation": str,
@@ -74,7 +74,7 @@ class Yolo(Layer):
         self.name = "Yolo"
         self.config = {}
 
-    def get_attr(self, attr):
+    def load_attr(self, attr):
         types = {
             "mask": int,
             "anchors": int,
@@ -100,7 +100,7 @@ class Route(Layer):
         self.name = "Route"
         self.config = {}
 
-    def get_attr(self, attr):
+    def load_attr(self, attr):
         types = {
             "layers": int,
         }
@@ -116,7 +116,7 @@ class Upsample(Layer):
         self.name = "Upsample"
         self.config = {}
 
-    def get_attr(self, attr):
+    def load_attr(self, attr):
         types = {
             "stride": int
         }
@@ -143,7 +143,7 @@ class Config:
                 continue
             layer = self.__layer_from_name(match.group(1))()
             for line in self.__block_generator(block_list[1:]):
-                layer.get_attr(line)
+                layer.load_attr(line)
             self.layers.append(layer)
 
     def read(self, filename):
@@ -166,6 +166,3 @@ class Config:
         }
         return layers[name]
 
-if __name__=="__main__":
-    cr = ConfigReader()
-    cr.read("../conf/yolov3.cfg")
