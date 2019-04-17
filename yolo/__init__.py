@@ -2,73 +2,136 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
+import configreader as cr
+
 
 class YOLO(nn.Module):
     activation_functions = {
         "leaky": nn.LeakyReLU,
     }
     def __init__(self):
+        super(YOLO, self).__init__()
         self.optimizer = None
         self.channels = None
         self.layers = []
-    
+
     @classmethod
-    def from_config(clf, config):
-        from configreader import Config
-        net = clf()
-        cfg = Config()
+    def from_config(cls, config):
+        net = cls()
+        net.layers_from_config(config)
+        return net
+
+    def layers_from_config(self, config):
+        outfilters = []
+        current_channels = 0
+        cfg = cr.Config()
         cfg.read(config)
         for layer in cfg.iterate_layers():
             ltype = type(layer).__name__
             if ltype == "Net":
                 # TODO Parse and understand all net settings
-                net.channels = layer.config["channels"]
+                self.channels = layer.config["channels"]
+                current_channels = self.channels
                 # Call this last?
                 # optimizer_cfg = {
                 #     "momentum" = layer.config["momentum"],
                 #     "learning_rate" = layer.config["learning_rate"]
                 # }
             elif ltype == "Convolutional":
-                if len(net.layers) > 0:
-                    idx = net.__get_last_conv()
-                    in_channels = net.layers[idx].out_channels
-                else:
-                    in_channels = net.channels
-                # The actual convolution
-                net.layers.append(
+                block = []
+                pad = (layer.config["size"] - 1) // 2 if layer.config["pad"] else 0
+                block.append(
                     nn.Conv2d(
-                        in_channels,
+                        current_channels,
                         layer.config["filters"],
                         layer.config["size"],
                         stride=layer.config["stride"],
-                        padding=layer.config["pad"])
+                        padding=pad)
                     )
-                if layer.config["batch_normalize"]:
-                    net.layers.append(
+                if "batch_normalize" in layer.config and layer.config["batch_normalize"]:
+                    block.append(
                         nn.BatchNorm2d(layer.config["filters"])
                     )
-                net.layers.append(
-                    net.activation_functions[layer.config["activation"]]
-                )
+                if layer.config["activation"] != "linear":
+                    block.append(
+                        self.activation_functions[layer.config["activation"]]()
+                    )
+                current_channels = layer.config["filters"]
+                outfilters.append(layer.config["filters"])
+                self.layers.append(block)
             elif ltype == "Shortcut":
-                # TODO
-                raise KeyError(ltype + " isn't implemented yet!")
+                outfilters.append(current_channels)
+                self.layers.append([layer])
             elif ltype == "Yolo":
-                # TODO
-                raise KeyError(ltype + " isn't implemented yet!")
+                outfilters.append(0)
+                self.layers.append([layer])
             elif ltype == "Route":
-                # TODO
-                raise KeyError(ltype + " isn't implemented yet!")
+                if layer.config["layers"][0] < 0:
+                    c1 = outfilters[len(self.layers) + layer.config["layers"][0]]
+                else:
+                    c1 = outfilters[layer.config["layers"][0]]
+                try:
+                    if layer.config["layers"][1] < 0:
+                        c2 = outfilters[len(self.layers) + layer.config["layers"][1]]
+                    else:
+                        c2 = outfilters[layer.config["layers"][1]]
+                except IndexError:
+                    c2 = 0
+                current_channels = c1+c2
+                outfilters.append(c1+c2)
+                self.layers.append([layer])
             elif ltype == "Upsample":
-                # TODO
-                raise KeyError(ltype + " isn't implemented yet!")
+                self.layers.append([layer])
+                outfilters.append(current_channels)
             else:
                 raise KeyError(ltype + " isn't implemented!")
+            assert len(outfilters) == len(self.layers)
 
     def __get_layer_names(self):
-        return [type(x).__name__ for x in self.layers]
+        unraveled = []
+        for y in self.layers:
+            for x in y:
+                unraveled.append(type(x).__name__)
+        print(unraveled)
+        return unraveled
 
     def __get_last_conv(self):
         names = self.__get_layer_names()
-        print(names)
         return len(names) - 1 - names[::-1].index('Conv2d')
+
+    def forward(self, x, gpu):
+        block_record = [x]
+        output = None
+        for i, block in enumerate(self.layers):
+            this_block = block_record[i]
+            for j, mod in enumerate(block):
+                if isinstance(mod, cr.Route):
+                    if mod.config["layers"][0] < 0:
+                        idx = i + mod.config["layers"][0] + 1
+                    else:
+                        idx = mod.config["layers"][0]
+                    if len(mod.config["layers"]) == 1:
+                        this_block = block_record[idx]
+                    else:
+                        if mod.config["layers"][1] < 0:
+                            idx2 = i + mod.config["layers"][1] + 1
+                        else:
+                            idx2 = mod.config["layers"][1]
+                        this_block = torch.cat((block_record[idx], block_record[idx2]), dim=1)
+                elif isinstance(mod, cr.Shortcut):
+                    this_block = this_block + block_record[i+mod.config["from"]+1]
+                elif isinstance(mod, cr.Yolo):
+                    output = 0  # FIXME Dummy output
+                elif isinstance(mod, cr.Upsample):
+                    this_block = F.interpolate(
+                        this_block,
+                        scale_factor=mod.config["stride"], mode="bilinear", align_corners=False
+                    )
+                elif isinstance(mod, nn.Module):
+                    try:
+                        this_block = mod(this_block)
+                    except RuntimeError as e:
+                        print(["{}\n".format(x.size(1)) for x in block_record])
+                        raise e
+            block_record.append(this_block)
+        return output
