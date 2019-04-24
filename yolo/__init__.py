@@ -203,6 +203,23 @@ class YOLO(nn.Module):
         return out
 
     @staticmethod
+    def data_from_path(path, size=416):
+        from os import listdir
+        from os.path import isfile, join
+        images = [f for f in listdir(path) if isfile(join(path, f)) and f.endswith(".png")]
+        order = np.argsort([int(x.split(".")[0]) for x in images])
+        images = [images[i] for i in order]
+        out = None
+        for image in images:
+            im = cv2.imread(join(path, image))
+            tens = YOLO.cv_to_torch(im, size=size)
+            if out is None:
+                out = tens
+            else:
+                out = torch.cat((out, tens), dim=0)
+        return out
+
+    @staticmethod
     def cv_to_torch(cv_img, size=None):
         im_rgb = cv2.cvtColor(cv_img, cv2.COLOR_BGR2RGB)
         if size is not None:
