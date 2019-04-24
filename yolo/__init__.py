@@ -179,57 +179,57 @@ class YOLO(nn.Module):
             block_record.append(this_block)
         return output
 
-    @staticmethod
-    def data_from_image(filename, size=416):
-        im_bgr = cv2.imread(filename)
-        return YOLO.cv_to_torch(im_bgr, size=size)
 
-    @staticmethod
-    def data_from_video(filename, size=416):
-        cap = cv2.VideoCapture(filename)
-        out = None
-        while True:
-            ret, frame_bgr = cap.read()
-            if not ret:
-                # End of video
-                break
-            tens = YOLO.cv_to_torch(frame_bgr, size=size)
-            if out is None:
-                out = tens
-            else:
-                out = torch.cat((out, tens), dim=0)
-            cv2.waitKey(0)
-        cap.release()
-        return out
+def data_from_image(filename, size=416):
+    im_bgr = cv2.imread(filename)
+    return cv_to_torch(im_bgr, size=size)
 
-    @staticmethod
-    def data_from_path(path, size=416):
-        from os import listdir
-        from os.path import isfile, join
-        images = [f for f in listdir(path) if isfile(join(path, f)) and f.endswith(".png")]
-        order = np.argsort([int(x.split(".")[0]) for x in images])
-        images = [images[i] for i in order]
-        out = None
-        for image in images:
-            im = cv2.imread(join(path, image))
-            tens = YOLO.cv_to_torch(im, size=size)
-            if out is None:
-                out = tens
-            else:
-                out = torch.cat((out, tens), dim=0)
-        return out
 
-    @staticmethod
-    def cv_to_torch(cv_img, size=None):
-        im_rgb = cv2.cvtColor(cv_img, cv2.COLOR_BGR2RGB)
-        if size is not None:
-            im_rgb = cv2.resize(im_rgb, (size, size), cv2.INTER_AREA)
+def data_from_video(filename, size=416):
+    cap = cv2.VideoCapture(filename)
+    out = None
+    while True:
+        ret, frame_bgr = cap.read()
+        if not ret:
+            # End of video
+            break
+        tens = cv_to_torch(frame_bgr, size=size)
+        if out is None:
+            out = tens
         else:
-            size = im_rgb.shape[0]
-        try:
-            return torch.Tensor(im_rgb.transpose((2, 0, 1)).reshape((1, 3, size, size)))
-        except ValueError as e:
-            print("Images must be square!")
-            raise e
-        # When everything done, release the capture
-        cap.release()
+            out = torch.cat((out, tens), dim=0)
+        cv2.waitKey(0)
+    cap.release()
+    return out
+
+
+def data_from_path(path, size=416):
+    from os import listdir
+    from os.path import isfile, join
+    images = [f for f in listdir(path) if isfile(join(path, f)) and f.endswith(".png")]
+    order = np.argsort([int(x.split(".")[0]) for x in images])
+    images = [images[i] for i in order]
+    out = None
+    for image in images:
+        im = cv2.imread(join(path, image))
+        tens = cv_to_torch(im, size=size)
+        if out is None:
+            out = tens
+        else:
+            out = torch.cat((out, tens), dim=0)
+    return out
+
+
+def cv_to_torch(cv_img, size=None):
+    im_rgb = cv2.cvtColor(cv_img, cv2.COLOR_BGR2RGB)
+    if size is not None:
+        im_rgb = cv2.resize(im_rgb, (size, size), cv2.INTER_AREA)
+    else:
+        size = im_rgb.shape[0]
+    try:
+        return torch.Tensor(im_rgb.transpose((2, 0, 1)).reshape((1, 3, size, size)))
+    except ValueError as e:
+        print("Images must be square!")
+        raise e
+    # When everything done, release the capture
+    cap.release()
