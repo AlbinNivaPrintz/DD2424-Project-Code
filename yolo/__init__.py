@@ -4,12 +4,14 @@ import torch.nn.functional as F
 import torch.optim as optim
 import configreader as cr
 import numpy as np
+import cv2
 
 
 class YOLO(nn.Module):
     activation_functions = {
         "leaky": nn.LeakyReLU,
     }
+
     def __init__(self):
         super(YOLO, self).__init__()
         self.optimizer = None
@@ -129,6 +131,7 @@ class YOLO(nn.Module):
                 elif isinstance(mod, cr.Shortcut):
                     this_block = this_block + block_record[i+mod.config["from"]+1]
                 elif isinstance(mod, cr.Yolo):
+                    # Detection layer
                     n_batch = this_block.size(0)
                     scale = self.im_size[0] // this_block.size(2)
                     grid_size = this_block.size(2)
@@ -140,12 +143,16 @@ class YOLO(nn.Module):
                     # Desired format (bx, by, bw, bh, c, pc1, ..., pcC) of length label_dim
                     formatted = this_block.view((n_batch, len(anchors)*label_dim, grid_size*grid_size))
                     formatted = formatted.transpose(1, 2).contiguous()
-                    formatted = formatted.view((n_batch, grid_size*grid_size*len(anchors), label_dim))
+                    formatted = formatted.view(
+                        (n_batch, grid_size*grid_size*len(anchors), label_dim)
+                    )
                     # Transform t_x to b_x
                     c_x = np.repeat(np.arange(0, grid_size), grid_size).reshape((-1, 1))
                     c_y = np.tile(np.arange(0, grid_size), grid_size).reshape((-1, 1))
                     c_x_y = np.hstack((c_x, c_y)).repeat(len(anchors), axis=0)
-                    c_x_y = torch.from_numpy(c_x_y).view((n_batch, grid_size*grid_size*len(anchors), 2))
+                    c_x_y = torch.from_numpy(c_x_y).view(
+                        (n_batch, grid_size*grid_size*len(anchors), 2)
+                    )
                     formatted[:, :, 0:2] = torch.sigmoid(formatted[:, :, 0:2]) + c_x_y.float()
                     formatted[:, :, 4] = torch.sigmoid(formatted[:, :, 4])
                     formatted[:, :, 2:4] = expanded_anchors * torch.exp(formatted[:, :, 2:4])
@@ -171,3 +178,11 @@ class YOLO(nn.Module):
                         raise e
             block_record.append(this_block)
         return output
+
+    @staticmethod
+    def data_from_image(filename, size = 416):
+        im_bgr = cv2.imread(filename)
+        im_rgb = cv2.cvtColor(im_bgr, cv2.COLOR_BGR2RGB)
+        im_resized = cv2.resize(im_rgb, (size, size), cv2.INTER_AREA)
+        im = im_resized.transpose((2, 0, 1)).reshape((1, 3, size, size))
+        return torch.Tensor(im)
