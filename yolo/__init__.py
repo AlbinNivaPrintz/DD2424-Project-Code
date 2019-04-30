@@ -3,17 +3,21 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 import configreader as cr
-
+import numpy as np
+import cv2
 
 class YOLO(nn.Module):
     activation_functions = {
         "leaky": nn.LeakyReLU,
     }
+
     def __init__(self):
         super(YOLO, self).__init__()
         self.optimizer = None
-        self.channels = None
+        self.channels = 0
+        self.n_classes = 0
         self.layers = []
+        self.im_size = (0, 0)
 
     @classmethod
     def from_config(cls, config):
@@ -21,6 +25,98 @@ class YOLO(nn.Module):
         net.layers_from_config(config)
         return net
 
+
+    def load_weights(self,weightfile):
+        
+        #open the weights file
+        fp = open(weightfile, "rb")
+        # The first 5 values are header information
+        # 1. Major version number
+        # 2. Minor version number
+        # 3. Subversion number
+        # 4,5 Images seen by tge network (during training)
+        header = np.fromfile(fp, dtype = np.int32, count = 5)
+        header = torch.from_numpy(header)
+        seen = header[3]
+        
+        weights = np.fromfile(fp, dtype = np.float32)
+
+        # To keep trach of where we are in the weights array we innitiate a position tracker ptr
+        ptr = 0
+        
+        # module_list = layers
+        # model = block
+        for block in self.layers:
+            
+            if isinstance(block[0], nn.Conv2d):
+                try:
+                    batch_normalize = True if isinstance(block[1], nn.BatchNorm2d) else False
+                except:
+                    batch_normalize = False
+                conv = block[0]
+            
+            if batch_normalize:
+                #save it as bn
+                try:
+                    bn = block[1]
+                    #print("bn",bn)
+                except IndexError:
+                    #print("block: ",block)
+                    break
+                # Get the number of weights of batch norm layer
+                num_bn_biases = bn.bias.numel()
+                
+                # Load the weights
+                bn_biases = torch.from_numpy(weights[ptr:ptr + num_bn_biases])
+                ptr += num_bn_biases
+                
+                bn_weights = torch.from_numpy(weights[ptr: ptr + num_bn_biases])
+                ptr  += num_bn_biases
+                
+                bn_running_mean = torch.from_numpy(weights[ptr: ptr + num_bn_biases])
+                ptr  += num_bn_biases
+                
+                bn_running_var = torch.from_numpy(weights[ptr: ptr + num_bn_biases])
+                ptr  += num_bn_biases
+
+                # "Cast the loaded weights into dims of model weights."
+                # Changing the shapes of the variables into "wanted shapes".
+                bn_biases = bn_biases.view_as(bn.bias.data)
+                bn_weights = bn_weights.view_as(bn.weight.data)
+                bn_running_mean = bn_running_mean.view_as(bn.running_mean)
+                bn_running_var = bn_running_var.view_as(bn.running_var)
+#                
+#                # Copy the data to the model
+                bn.bias.data.copy_(bn_biases)
+                bn.weight.data.copy_(bn_weights)
+                bn.running_mean.copy_(bn_running_mean)
+                bn.running_var.copy_(bn_running_var)
+                
+            else:
+                # Assign the number of biases
+                num_biases = conv.bias.numel()
+                
+                # Load the weights
+                conv_biases = torch.from_numpy(weights[ptr: ptr + num_biases])
+                ptr  += num_bn_biases
+                
+                # Reshape the loaded weights according to the dimensions of the model weights
+                conv_biases = conv_biases.view_as(conv.bias.data)
+                
+                # Copy the data
+                conv.bias.data.copy_(conv_biases)
+         
+        # Load the weights for the convolutional layers
+        # by doing the same as in the else-statement for the weights
+        # number of biases
+        num_weights = conv.weight.numel()
+        # Load weights
+        conv_weights = torch.from_numpy(weights[ptr : ptr + num_weights])
+        ptr += num_weights
+        # Reshape the loaded weights and then copy the data
+        conv_weights = conv_weights.view_as(conv.weight.data)
+        conv.weight.data.copy_(conv_weights)        
+                
     def layers_from_config(self, config):
         outfilters = []
         current_channels = 0
@@ -31,6 +127,7 @@ class YOLO(nn.Module):
             if ltype == "Net":
                 # TODO Parse and understand all net settings
                 self.channels = layer.config["channels"]
+                self.im_size = (layer.config["width"], layer.config["height"])
                 current_channels = self.channels
                 # Call this last?
                 # optimizer_cfg = {
@@ -64,6 +161,10 @@ class YOLO(nn.Module):
                 self.layers.append([layer])
             elif ltype == "Yolo":
                 outfilters.append(0)
+                # Weird config thing with classes being detection layer specific
+                if self.n_classes != layer.config["classes"] and self.n_classes != 0:
+                    print("There are different numbers of classes in the yolo layers. Just so you know.")
+                self.n_classes = layer.config["classes"]
                 self.layers.append([layer])
             elif ltype == "Route":
                 if layer.config["layers"][0] < 0:
@@ -121,7 +222,40 @@ class YOLO(nn.Module):
                 elif isinstance(mod, cr.Shortcut):
                     this_block = this_block + block_record[i+mod.config["from"]+1]
                 elif isinstance(mod, cr.Yolo):
-                    output = 0  # FIXME Dummy output
+                    # Detection layer
+                    n_batch = this_block.size(0)
+                    scale = self.im_size[0] // this_block.size(2)
+                    grid_size = this_block.size(2)
+                    label_dim = 5 + self.n_classes
+                    anchors = [mod.config["anchors"][i] for i in mod.config["mask"]]
+                    # Make anchors relative to grid
+                    anchors = torch.tensor([[anchor[0]/scale, anchor[1]/scale] for anchor in anchors])
+                    expanded_anchors = anchors.repeat(1, grid_size * grid_size, 1)
+                    # Desired format (bx, by, bw, bh, c, pc1, ..., pcC) of length label_dim
+                    formatted = this_block.view((n_batch, len(anchors)*label_dim, grid_size*grid_size))
+                    formatted = formatted.transpose(1, 2).contiguous()
+                    formatted = formatted.view(
+                        (n_batch, grid_size*grid_size*len(anchors), label_dim)
+                    )
+                    # Transform t_x to b_x
+                    c_x = np.repeat(np.arange(0, grid_size), grid_size).reshape((-1, 1))
+                    c_y = np.tile(np.arange(0, grid_size), grid_size).reshape((-1, 1))
+                    c_x_y = np.hstack((c_x, c_y)).repeat(len(anchors), axis=0)
+                    c_x_y = torch.from_numpy(c_x_y).view(
+                        (n_batch, grid_size*grid_size*len(anchors), 2)
+                    )
+                    formatted[:, :, 0:2] = torch.sigmoid(formatted[:, :, 0:2]) + c_x_y.float()
+                    formatted[:, :, 4] = torch.sigmoid(formatted[:, :, 4])
+                    formatted[:, :, 2:4] = expanded_anchors * torch.exp(formatted[:, :, 2:4])
+                    formatted[:, :, 5:] = torch.sigmoid(formatted[:, :, 5:])
+                    formatted[:, :, :4] = formatted[:, :, :4]
+                    if output is None:
+                        output = formatted
+                    else:
+                        output = torch.cat(
+                            (output, formatted),
+                            dim=1
+                        )
                 elif isinstance(mod, cr.Upsample):
                     this_block = F.interpolate(
                         this_block,
@@ -135,3 +269,58 @@ class YOLO(nn.Module):
                         raise e
             block_record.append(this_block)
         return output
+
+
+def data_from_image(filename, size=416):
+    im_bgr = cv2.imread(filename)
+    return cv_to_torch(im_bgr, size=size)
+
+
+def data_from_video(filename, size=416):
+    cap = cv2.VideoCapture(filename)
+    out = None
+    while True:
+        ret, frame_bgr = cap.read()
+        if not ret:
+            # End of video
+            break
+        tens = cv_to_torch(frame_bgr, size=size)
+        if out is None:
+            out = tens
+        else:
+            out = torch.cat((out, tens), dim=0)
+        cv2.waitKey(0)
+    cap.release()
+    return out
+
+
+def data_from_path(path, size=416):
+    from os import listdir
+    from os.path import isfile, join
+    images = [f for f in listdir(path) if isfile(join(path, f)) and f.endswith(".png")]
+    order = np.argsort([int(x.split(".")[0]) for x in images])
+    images = [images[i] for i in order]
+    out = None
+    for image in images:
+        im = cv2.imread(join(path, image))
+        tens = cv_to_torch(im, size=size)
+        if out is None:
+            out = tens
+        else:
+            out = torch.cat((out, tens), dim=0)
+    return out
+
+
+def cv_to_torch(cv_img, size=None):
+    im_rgb = cv2.cvtColor(cv_img, cv2.COLOR_BGR2RGB)
+    if size is not None:
+        im_rgb = cv2.resize(im_rgb, (size, size), cv2.INTER_AREA)
+    else:
+        size = im_rgb.shape[0]
+    try:
+        return torch.Tensor(im_rgb.transpose((2, 0, 1)).reshape((1, 3, size, size)))
+    except ValueError as e:
+        print("Images must be square!")
+        raise e
+    # When everything done, release the capture
+    cap.release()
