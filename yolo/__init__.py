@@ -25,9 +25,94 @@ class YOLO(nn.Module):
         net.layers_from_config(config)
         return net
 
+    # def load_weights(self, weightfile):
+    #     # Open the weights file
+    #     fp = open(weightfile, "rb")
+    #
+    #     # The first 5 values are header information
+    #     # 1. Major version number
+    #     # 2. Minor Version Number
+    #     # 3. Subversion number
+    #     # 4,5. Images seen by the network (during training)
+    #     header = np.fromfile(fp, dtype=np.int32, count=5)
+    #     self.header = torch.from_numpy(header)
+    #     self.seen = self.header[3]
+    #
+    #     weights = np.fromfile(fp, dtype=np.float32)
+    #
+    #     ptr = 0
+    #     for i in range(len(self.layers)):
+    #         module_type = type(self.layers[i][0])
+    #
+    #         # If module_type is convolutional load weights
+    #         # Otherwise ignore.
+    #
+    #         if module_type == nn.Conv2d:
+    #             model = self.layers[i]
+    #             try:
+    #                 batch_normalize = isinstance(self.layers[i][1], nn.BatchNorm2d)
+    #             except:
+    #                 batch_normalize = False
+    #
+    #             conv = model[0]
+    #
+    #             if batch_normalize:
+    #                 bn = model[1]
+    #
+    #                 # Get the number of weights of Batch Norm Layer
+    #                 num_bn_biases = bn.bias.numel()
+    #
+    #                 # Load the weights
+    #                 bn_biases = torch.from_numpy(weights[ptr:ptr + num_bn_biases])
+    #                 ptr += num_bn_biases
+    #
+    #                 bn_weights = torch.from_numpy(weights[ptr: ptr + num_bn_biases])
+    #                 ptr += num_bn_biases
+    #
+    #                 bn_running_mean = torch.from_numpy(weights[ptr: ptr + num_bn_biases])
+    #                 ptr += num_bn_biases
+    #
+    #                 bn_running_var = torch.from_numpy(weights[ptr: ptr + num_bn_biases])
+    #                 ptr += num_bn_biases
+    #
+    #                 # Cast the loaded weights into dims of model weights.
+    #                 bn_biases = bn_biases.view_as(bn.bias.data)
+    #                 bn_weights = bn_weights.view_as(bn.weight.data)
+    #                 bn_running_mean = bn_running_mean.view_as(bn.running_mean)
+    #                 bn_running_var = bn_running_var.view_as(bn.running_var)
+    #
+    #                 # Copy the data to model
+    #                 bn.bias.data.copy_(bn_biases)
+    #                 bn.weight.data.copy_(bn_weights)
+    #                 bn.running_mean.copy_(bn_running_mean)
+    #                 bn.running_var.copy_(bn_running_var)
+    #
+    #             else:
+    #                 # Number of biases
+    #                 num_biases = conv.bias.numel()
+    #
+    #                 # Load the weights
+    #                 conv_biases = torch.from_numpy(weights[ptr: ptr + num_biases])
+    #                 ptr = ptr + num_biases
+    #
+    #                 # reshape the loaded weights according to the dims of the model weights
+    #                 conv_biases = conv_biases.view_as(conv.bias.data)
+    #
+    #                 # Finally copy the data
+    #                 conv.bias.data.copy_(conv_biases)
+    #
+    #             # Let us load the weights for the Convolutional layers
+    #             num_weights = conv.weight.numel()
+    #
+    #             # Do the same as above for weights
+    #             conv_weights = torch.from_numpy(weights[ptr:ptr + num_weights])
+    #             ptr = ptr + num_weights
+    #
+    #             conv_weights = conv_weights.view_as(conv.weight.data)
+    #             conv.weight.data.copy_(conv_weights)
 
     def load_weights(self,weightfile):
-        
+
         #open the weights file
         fp = open(weightfile, "rb")
         # The first 5 values are header information
@@ -38,82 +123,82 @@ class YOLO(nn.Module):
         header = np.fromfile(fp, dtype = np.int32, count = 5)
         header = torch.from_numpy(header)
         seen = header[3]
-        
+
         weights = np.fromfile(fp, dtype=np.float32)
 
         # To keep track of where we are in the weights array we initiate a position tracker ptr
         ptr = 0
-        
+
         # module_list = layers
         # model = block
         for block in self.layers:
-            
+
             if isinstance(block[0], nn.Conv2d):
                 try:
                     batch_normalize = isinstance(block[1], nn.BatchNorm2d)
                 except IndexError:
                     batch_normalize = False
                 conv = block[0]
-            
-            if batch_normalize:
-                #save it as bn
-                try:
-                    bn = block[1]
-                except IndexError:
-                    break
-                # Get the number of weights of batch norm layer
-                num_bn_biases = bn.bias.numel()
-                
-                # Load the weights
-                bn_biases = torch.from_numpy(weights[ptr:ptr + num_bn_biases])
-                ptr += num_bn_biases
-                
-                bn_weights = torch.from_numpy(weights[ptr: ptr + num_bn_biases])
-                ptr  += num_bn_biases
-                
-                bn_running_mean = torch.from_numpy(weights[ptr: ptr + num_bn_biases])
-                ptr  += num_bn_biases
-                
-                bn_running_var = torch.from_numpy(weights[ptr: ptr + num_bn_biases])
-                ptr  += num_bn_biases
 
-                # "Cast the loaded weights into dims of model weights."
-                # Changing the shapes of the variables into "wanted shapes".
-                bn_biases = bn_biases.view_as(bn.bias.data)
-                bn_weights = bn_weights.view_as(bn.weight.data)
-                bn_running_mean = bn_running_mean.view_as(bn.running_mean)
-                bn_running_var = bn_running_var.view_as(bn.running_var)
-#                
-#                # Copy the data to the model
-                bn.bias.data.copy_(bn_biases)
-                bn.weight.data.copy_(bn_weights)
-                bn.running_mean.copy_(bn_running_mean)
-                bn.running_var.copy_(bn_running_var)
-                
-            else:
-                # Assign the number of biases
-                num_biases = conv.bias.numel()
-                
-                # Load the weights
-                conv_biases = torch.from_numpy(weights[ptr: ptr + num_biases])
-                ptr  += num_bn_biases
-                
-                # Reshape the loaded weights according to the dimensions of the model weights
-                conv_biases = conv_biases.view_as(conv.bias.data)
-                
-                # Copy the data
-                conv.bias.data.copy_(conv_biases)
-         
-        # Load the weights for the convolutional layers
-        # by doing the same as in the else-statement for the weights
-        # number of biases
-        num_weights = conv.weight.numel()
-        # Load weights
-        conv_weights = torch.from_numpy(weights[ptr : ptr + num_weights])
-        ptr += num_weights
-        # Reshape the loaded weights and then copy the data
-        conv_weights = conv_weights.view_as(conv.weight.data)
-        conv.weight.data.copy_(conv_weights)        
+                if batch_normalize:
+                    #save it as bn
+                    try:
+                        bn = block[1]
+                    except IndexError:
+                        break
+                    # Get the number of weights of batch norm layer
+                    num_bn_biases = bn.bias.numel()
+
+                    # Load the weights
+                    bn_biases = torch.from_numpy(weights[ptr:ptr + num_bn_biases])
+                    ptr += num_bn_biases
+
+                    bn_weights = torch.from_numpy(weights[ptr:ptr + num_bn_biases])
+                    ptr  += num_bn_biases
+
+                    bn_running_mean = torch.from_numpy(weights[ptr:ptr + num_bn_biases])
+                    ptr  += num_bn_biases
+
+                    bn_running_var = torch.from_numpy(weights[ptr:ptr + num_bn_biases])
+                    ptr  += num_bn_biases
+
+                    # "Cast the loaded weights into dims of model weights."
+                    # Changing the shapes of the variables into "wanted shapes".
+                    bn_biases = bn_biases.view_as(bn.bias.data)
+                    bn_weights = bn_weights.view_as(bn.weight.data)
+                    bn_running_mean = bn_running_mean.view_as(bn.running_mean)
+                    bn_running_var = bn_running_var.view_as(bn.running_var)
+    #
+    #                # Copy the data to the model
+                    bn.bias.data.copy_(bn_biases)
+                    bn.weight.data.copy_(bn_weights)
+                    bn.running_mean.copy_(bn_running_mean)
+                    bn.running_var.copy_(bn_running_var)
+
+                else:
+                    # Assign the number of biases
+                    num_biases = conv.bias.numel()
+
+                    # Load the weights
+                    conv_biases = torch.from_numpy(weights[ptr:ptr + num_biases])
+                    ptr += num_biases
+
+                    # Reshape the loaded weights according to the dimensions of the model weights
+                    conv_biases = conv_biases.view_as(conv.bias.data)
+
+                    # Copy the data
+                    conv.bias.data.copy_(conv_biases)
+
+                # Load the weights for the convolutional layers
+                # by doing the same as in the else-statement for the weights
+                # number of biases
+                num_weights = conv.weight.numel()
+                # Load weights
+                conv_weights = torch.from_numpy(weights[ptr:ptr + num_weights])
+                ptr += num_weights
+                # Reshape the loaded weights and then copy the data
+                conv_weights = conv_weights.view_as(conv.weight.data)
+                conv.weight.data.copy_(conv_weights)
                 
     def layers_from_config(self, config):
         outfilters = []
@@ -238,7 +323,7 @@ class YOLO(nn.Module):
                     # Transform t_x to b_x
                     c_x = np.repeat(np.arange(0, grid_size), grid_size).reshape((-1, 1))
                     c_y = np.tile(np.arange(0, grid_size), grid_size).reshape((-1, 1))
-                    c_x_y = np.hstack((c_x, c_y)).repeat(len(anchors), axis=0)
+                    c_x_y = np.hstack((c_y, c_x)).repeat(len(anchors), axis=0)
                     c_x_y = torch.from_numpy(c_x_y).view(
                         (n_batch, grid_size*grid_size*len(anchors), 2)
                     )
@@ -246,7 +331,7 @@ class YOLO(nn.Module):
                     formatted[:, :, 4] = torch.sigmoid(formatted[:, :, 4])
                     formatted[:, :, 2:4] = expanded_anchors * torch.exp(formatted[:, :, 2:4])
                     formatted[:, :, 5:] = torch.sigmoid(formatted[:, :, 5:])
-                    formatted[:, :, :4] = formatted[:, :, :4]
+                    formatted[:, :, :4] *= scale
                     if output is None:
                         output = formatted
                     else:
@@ -267,6 +352,42 @@ class YOLO(nn.Module):
                         raise e
             block_record.append(this_block)
         return output
+
+    def bbs_from_detection(self, detection, threshold, nms_threshold):
+        # Suppress where objectness is lower than threshold
+        mask = detection[:, :, 4] > threshold
+        mask = mask.view((mask.size(0), -1, 1)).expand_as(detection).type(torch.FloatTensor)
+        cleared = detection * mask
+
+        # Get class prediction
+        class_score, class_predictions = torch.max(cleared[:, :, 5:], 2)
+        # Ensure the correct shape
+        class_predictions = class_predictions.view((class_predictions.size(0), -1))
+
+        # Transform to top_l_x, top_l_y, bottom_r_x, bottom_r_y
+        bounding_box = torch.zeros_like(cleared[:, :, :6])
+        bounding_box[:, :, 0] = cleared[:, :, 0] - cleared[:, :, 2] / 2
+        bounding_box[:, :, 1] = cleared[:, :, 1] - cleared[:, :, 3] / 2
+        bounding_box[:, :, 2] = cleared[:, :, 0] + cleared[:, :, 2] / 2
+        bounding_box[:, :, 3] = cleared[:, :, 1] + cleared[:, :, 3] / 2
+        bounding_box[:, :, 4] = class_predictions
+        bounding_box[:, :, 5] = class_score
+
+        output = []
+        for i in range(bounding_box.size(0)):
+            non_zero = bounding_box[i, cleared[i, :, 4] != 0, :]
+            # TODO Here we are gonna do NMS
+            output.append(non_zero)
+        return output
+
+    def draw_bbs(self, x, bbs):
+        img_draw = np.array(x).copy().transpose((1, 2, 0))
+        for r in range(bbs.size(0)):
+            x1, y1, x2, y2, c, p = bbs[r]
+            # Class stuff is correct, but location seems to be off......
+            print((int(x1), int(y1)), (int(x2), int(y2)), int(c), float(p))
+            img_draw = cv2.rectangle(img_draw, (int(x1), int(y1)), (int(x2), int(y2)), (255, 0, 0))
+        return img_draw
 
 
 def data_from_image(filename, size=416):
