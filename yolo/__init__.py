@@ -200,7 +200,6 @@ class YOLO(nn.Module):
         for y in self.layers:
             for x in y:
                 unraveled.append(type(x).__name__)
-        print(unraveled)
         return unraveled
 
     def __get_last_conv(self):
@@ -301,16 +300,50 @@ class YOLO(nn.Module):
         for i in range(bounding_box.size(0)):
             non_zero = bounding_box[i, cleared[i, :, 4] != 0, :]
             # TODO Here we are gonna do NMS
-            output.append(non_zero)
+            unique_classes = torch.unique(non_zero[:, 4]).type(torch.IntTensor)
+            output_this_frame = None
+            for cls in unique_classes:
+                # Perform NMS class wise
+                cls = int(cls)
+                of_this_class = non_zero[non_zero[:, 4]==cls, :]
+                order = torch.argsort(of_this_class[:, 5], descending=True)
+                of_this_class = of_this_class[order, :]
+                for i in range(of_this_class.size(0)):
+                    current_box = of_this_class[i, :]
+                    if current_box[5] == 0: continue
+                    other_boxes = of_this_class[i+1:, :]
+                    scores = self.iou(current_box, other_boxes)
+                    passed = scores < nms_threshold
+                    of_this_class[i+1:, :] *= passed.type(torch.FloatTensor).unsqueeze(1)
+                if output_this_frame is None:
+                    output_this_frame = of_this_class[of_this_class[:, 5]!=0, :]
+                else:
+                    output_this_frame = torch.cat(
+                        (output_this_frame, of_this_class[of_this_class[:, 5]!=0, :]),
+                        dim=0)
+            output.append(output_this_frame)
+            print(output_this_frame)
         return output
+        
+    def iou(self, bbox, bboxes):
+        x1, y1, x2, y2, _, _ = bbox
+        area = (x2 - x1)*(y2 - y1)
+        areas = (bboxes[:, 2] - bboxes[:, 0])*(bboxes[:, 3] - bboxes[:, 1])
+        inter_x1 = torch.where(bboxes[:, 0] > x1, bboxes[:, 0], x1)
+        inter_y1 = torch.where(bboxes[:, 1] > y1, bboxes[:, 1], y1)
+        inter_x2 = torch.where(bboxes[:, 2] < x2, bboxes[:, 2], x2)
+        inter_y2 = torch.where(bboxes[:, 3] < y2, bboxes[:, 3], y2)
+        unsigned_inter = (inter_x2 - inter_x1)*(inter_y2 - inter_y1)
+        inter_areas = torch.where(unsigned_inter > 0, unsigned_inter, torch.zeros_like(unsigned_inter))
+        union = area + areas - inter_areas
+        return inter_areas/union
 
     def draw_bbs(self, x, bbs):
-    	# TODO This probably draw stuff in a more clever way. Text placements and stuff.
+        # TODO This probably draw stuff in a more clever way. Text placements and stuff.
         img_draw = x.copy()
         true_w, true_h, _ = x.shape
         wfactor = true_w / self.im_size[0]
         hfactor = true_h / self.im_size[1]
-        print(true_w, true_h)
         for r in range(bbs.size(0)):
             x1, y1, x2, y2, c, p = bbs[r]
             topleft = (int(wfactor*x1), int(hfactor*y1))
