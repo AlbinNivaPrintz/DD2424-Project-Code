@@ -4,6 +4,7 @@ import torch.nn.functional as F
 import configreader as cr
 import numpy as np
 import cv2
+from bidict import bidict
 
 
 class YOLO(nn.Module):
@@ -11,8 +12,9 @@ class YOLO(nn.Module):
         "leaky": nn.LeakyReLU,
     }
 
-    def __init__(self):
+    def __init__(self, labels="labels/coco.names"):
         super(YOLO, self).__init__()
+        self.labelmap = self.get_label_map(labels)
         self.optimizer = None
         self.channels = 0
         self.n_classes = 0
@@ -20,10 +22,18 @@ class YOLO(nn.Module):
         self.im_size = (0, 0)
 
     @classmethod
-    def from_config(cls, config):
-        net = cls()
+    def from_config(cls, config, labels="labels/coco.names"):
+        net = cls(labels)
         net.layers_from_config(config)
         return net
+        
+    def get_label_map(self, filename):
+    	onewaymap = {}
+    	with open(filename, 'r') as f:
+    		l = f.readlines()
+    	for i in range(len(l)):
+    		onewaymap[i] = l[i].strip()
+    	return bidict(onewaymap)
 
     def load_weights(self,weightfile):
 
@@ -160,7 +170,7 @@ class YOLO(nn.Module):
                 outfilters.append(0)
                 # Weird config thing with classes being detection layer specific
                 if self.n_classes != layer.config["classes"] and self.n_classes != 0:
-                    print("There are different numbers of classes in the yolo layers. Just so you know.")
+                    print("There are different numbers of classes in the yolo layers.")
                 self.n_classes = layer.config["classes"]
                 self.layers.append([layer])
             elif ltype == "Route":
@@ -295,12 +305,28 @@ class YOLO(nn.Module):
         return output
 
     def draw_bbs(self, x, bbs):
-        img_draw = np.array(x).copy().transpose((1, 2, 0))
+    	# TODO This probably draw stuff in a more clever way. Text placements and stuff.
+        img_draw = x.copy()
+        true_w, true_h, _ = x.shape
+        wfactor = true_w / self.im_size[0]
+        hfactor = true_h / self.im_size[1]
+        print(true_w, true_h)
         for r in range(bbs.size(0)):
             x1, y1, x2, y2, c, p = bbs[r]
-            # Class stuff is correct, but location seems to be off......
-            print((int(x1), int(y1)), (int(x2), int(y2)), int(c), float(p))
-            img_draw = cv2.rectangle(img_draw, (int(x1), int(y1)), (int(x2), int(y2)), (255, 0, 0))
+            topleft = (int(wfactor*x1), int(hfactor*y1))
+            bottomright = (int(wfactor*x2), int(hfactor*y2))
+            c = int(c)
+            img_draw = cv2.rectangle(img_draw, topleft, bottomright, (255, 0, 0), 2)
+            bottomleft_text = (topleft[0]+10, topleft[1]+40)
+            img_draw = cv2.putText(
+            	img_draw,
+            	self.labelmap[c],
+            	bottomleft_text, 
+            	cv2.FONT_HERSHEY_PLAIN,
+            	4, 
+            	(255, 0, 0),
+            	4
+            )
         return img_draw
 
 
@@ -347,11 +373,11 @@ def data_from_path(path, size=416):
 def cv_to_torch(cv_img, size=None):
     im_rgb = cv2.cvtColor(cv_img, cv2.COLOR_BGR2RGB)
     if size is not None:
-        im_rgb = cv2.resize(im_rgb, (size, size), cv2.INTER_AREA)
+        im_out = cv2.resize(im_rgb, (size, size), cv2.INTER_AREA)
     else:
         size = im_rgb.shape[0]
     try:
-        return torch.Tensor(im_rgb.transpose((2, 0, 1)).reshape((1, 3, size, size)))
+        return torch.Tensor(im_out.transpose((2, 0, 1)).reshape((1, 3, size, size))), im_rgb
     except ValueError as e:
         print("Images must be square!")
         raise e
