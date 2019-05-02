@@ -1,10 +1,10 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import torch.optim as optim
 import configreader as cr
 import numpy as np
 import cv2
+
 
 class YOLO(nn.Module):
     activation_functions = {
@@ -34,14 +34,14 @@ class YOLO(nn.Module):
         # 1. Major version number
         # 2. Minor version number
         # 3. Subversion number
-        # 4,5 Images seen by tge network (during training)
+        # 4,5 Images seen by the network (during training)
         header = np.fromfile(fp, dtype = np.int32, count = 5)
         header = torch.from_numpy(header)
         seen = header[3]
         
-        weights = np.fromfile(fp, dtype = np.float32)
+        weights = np.fromfile(fp, dtype=np.float32)
 
-        # To keep trach of where we are in the weights array we innitiate a position tracker ptr
+        # To keep track of where we are in the weights array we initiate a position tracker ptr
         ptr = 0
         
         # module_list = layers
@@ -50,8 +50,8 @@ class YOLO(nn.Module):
             
             if isinstance(block[0], nn.Conv2d):
                 try:
-                    batch_normalize = True if isinstance(block[1], nn.BatchNorm2d) else False
-                except:
+                    batch_normalize = isinstance(block[1], nn.BatchNorm2d)
+                except IndexError:
                     batch_normalize = False
                 conv = block[0]
             
@@ -59,9 +59,7 @@ class YOLO(nn.Module):
                 #save it as bn
                 try:
                     bn = block[1]
-                    #print("bn",bn)
                 except IndexError:
-                    #print("block: ",block)
                     break
                 # Get the number of weights of batch norm layer
                 num_bn_biases = bn.bias.numel()
