@@ -298,7 +298,7 @@ class YOLO(nn.Module):
 
         output = []
         for i in range(bounding_box.size(0)):
-            non_zero = bounding_box[i, cleared[i, :, 4] != 0, :]
+            non_zero = bounding_box[i, bounding_box[i, :, 5]!=0, :]
             # TODO Here we are gonna do NMS
             unique_classes = torch.unique(non_zero[:, 4]).type(torch.IntTensor)
             output_this_frame = None
@@ -322,7 +322,6 @@ class YOLO(nn.Module):
                         (output_this_frame, of_this_class[of_this_class[:, 5]!=0, :]),
                         dim=0)
             output.append(output_this_frame)
-            print(output_this_frame)
         return output
         
     def iou(self, bbox, bboxes):
@@ -342,8 +341,8 @@ class YOLO(nn.Module):
         # TODO This probably draw stuff in a more clever way. Text placements and stuff.
         img_draw = x.copy()
         true_w, true_h, _ = x.shape
-        wfactor = true_w / self.im_size[0]
-        hfactor = true_h / self.im_size[1]
+        wfactor = true_h / self.im_size[0]
+        hfactor = true_w / self.im_size[1]
         for r in range(bbs.size(0)):
             x1, y1, x2, y2, c, p = bbs[r]
             topleft = (int(wfactor*x1), int(hfactor*y1))
@@ -361,6 +360,28 @@ class YOLO(nn.Module):
             	4
             )
         return img_draw
+        
+    def detect_on_webcam(self, size=416):
+        cap = cv2.VideoCapture(0)
+
+        while(True):
+            # Capture frame-by-frame
+            ret, frame = cap.read()
+            x, im = cv_to_torch(frame, size=size)
+            out = self.forward(x, gpu=False)
+            bbs = self.bbs_from_detection(out, 0.5, 0.5)
+            if bbs[0] is not None:
+                img_draw = self.draw_bbs(im, bbs[0])
+                img_draw = cv2.cvtColor(img_draw, cv2.COLOR_RGB2BGR)
+                # Display the resulting frame
+                cv2.imshow('detection',img_draw)
+            else:
+                cv2.imshow('detection',frame)
+            if cv2.waitKey(1) & 0xFF == ord('q'):
+                break
+
+        # When everything done, release the capture
+        cap.release()
 
 
 def data_from_image(filename, size=416):
