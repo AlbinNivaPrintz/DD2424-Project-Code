@@ -28,6 +28,19 @@ class YOLO(nn.Module):
             "Upsample": self.__lfc_upsample,
             "Route": self.__lfc_route
         }
+        self.train_yolo = False
+        
+    @property
+    def train_yolo(self):
+        return self.train_yolo
+    
+    @train_yolo.setter
+    def train_yolo(self, train_yolo):
+        self.train_yolo = train_yolo
+        for block in self.layers:
+            for mod in block:
+                if isinstance(mod, nn.Module):
+                    mod.requires_grad_(train_yolo)
 
     @classmethod
     def from_config(cls, config, labels="labels/coco.names"):
@@ -290,6 +303,19 @@ class YOLO(nn.Module):
                         raise e
             block_record.append(this_block)
         return output
+        
+    def detect(self, X, outfilename="test.png", gpu=False):
+        print("Performing forward pass.")
+        with torch.nograd():
+            out = self.forward(X, gpu)
+        print("Calculating bounding boxes.")
+        bbs = net.bbs_from_detection(out, 0.5, 0.5)
+        print("Drawing boxes.")
+        img_draw = net.draw_bbs(img, bbs[0])
+        img_draw = cv2.cvtColor(img_draw, cv2.COLOR_RGB2BGR)
+        cv2.imwrite("test.png", img_draw)
+        print("Done! Wrote to {}.".format(outfilename))
+                
 
     def bbs_from_detection(self, detection, threshold, nms_threshold):
         # Suppress where objectness is lower than threshold
