@@ -20,6 +20,14 @@ class YOLO(nn.Module):
         self.n_classes = 0
         self.layers = []
         self.im_size = (0, 0)
+        self.map_lfc_layer = {
+            "Net": self.__lfc_net,
+            "Convolutional": self.__lfc_convolutional,
+            "Shortcut": self.__lfc_shortcut,
+            "Yolo": self.__lfc_yolo,
+            "Upsample": self.__lfc_upsample,
+            "Route": self.__lfc_route
+        }
 
     @classmethod
     def from_config(cls, config, labels="labels/coco.names"):
@@ -131,69 +139,76 @@ class YOLO(nn.Module):
         cfg.read(config)
         for layer in cfg.iterate_layers():
             ltype = type(layer).__name__
-            if ltype == "Net":
-                # TODO Parse and understand all net settings
-                self.channels = layer.config["channels"]
-                self.im_size = (layer.config["width"], layer.config["height"])
-                current_channels = self.channels
-                # Call this last?
-                # optimizer_cfg = {
-                #     "momentum" = layer.config["momentum"],
-                #     "learning_rate" = layer.config["learning_rate"]
-                # }
-            elif ltype == "Convolutional":
-                block = []
-                pad = (layer.config["size"] - 1) // 2 if layer.config["pad"] else 0
-                block.append(
-                    nn.Conv2d(
-                        current_channels,
-                        layer.config["filters"],
-                        layer.config["size"],
-                        stride=layer.config["stride"],
-                        padding=pad)
-                    )
-                if "batch_normalize" in layer.config and layer.config["batch_normalize"]:
-                    block.append(
-                        nn.BatchNorm2d(layer.config["filters"])
-                    )
-                if layer.config["activation"] != "linear":
-                    block.append(
-                        self.activation_functions[layer.config["activation"]]()
-                    )
-                current_channels = layer.config["filters"]
-                outfilters.append(layer.config["filters"])
-                self.layers.append(block)
-            elif ltype == "Shortcut":
-                outfilters.append(current_channels)
-                self.layers.append([layer])
-            elif ltype == "Yolo":
-                outfilters.append(0)
-                # Weird config thing with classes being detection layer specific
-                if self.n_classes != layer.config["classes"] and self.n_classes != 0:
-                    print("There are different numbers of classes in the yolo layers.")
-                self.n_classes = layer.config["classes"]
-                self.layers.append([layer])
-            elif ltype == "Route":
-                if layer.config["layers"][0] < 0:
-                    c1 = outfilters[len(self.layers) + layer.config["layers"][0]]
-                else:
-                    c1 = outfilters[layer.config["layers"][0]]
-                try:
-                    if layer.config["layers"][1] < 0:
-                        c2 = outfilters[len(self.layers) + layer.config["layers"][1]]
-                    else:
-                        c2 = outfilters[layer.config["layers"][1]]
-                except IndexError:
-                    c2 = 0
-                current_channels = c1+c2
-                outfilters.append(c1+c2)
-                self.layers.append([layer])
-            elif ltype == "Upsample":
-                self.layers.append([layer])
-                outfilters.append(current_channels)
-            else:
-                raise KeyError(ltype + " isn't implemented!")
+            try:
+                out = self.map_lfc_layer[ltype](layer, outfilters, current_channels)
+            except KeyError:
+                raise KeyError(
+                    ltype + " was found in config, but isn't an implemented block!"
+                )
+            if "channels" in out:
+                current_channels = out["channels"]
+            if "block" in out:
+                self.layers.append(out["block"])
+                outfilters.append(out["outfilters"])
             assert len(outfilters) == len(self.layers)
+            
+    def __lfc_net(self, layer, outfilters, current_channels):
+        self.channels = layer.config["channels"]
+        self.im_size = (layer.config["width"], layer.config["height"])
+        return {"channels": self.channels}
+        
+    def __lfc_convolutional(self, layer, outfilters, current_channels):
+        block = []
+        pad = (layer.config["size"] - 1) // 2 if layer.config["pad"] else 0
+        block.append(
+            nn.Conv2d(
+                current_channels,
+                layer.config["filters"],
+                layer.config["size"],
+                stride=layer.config["stride"],
+                padding=pad)
+            )
+        if "batch_normalize" in layer.config and layer.config["batch_normalize"]:
+            block.append(
+                nn.BatchNorm2d(layer.config["filters"])
+            )
+        if layer.config["activation"] != "linear":
+            block.append(
+                self.activation_functions[layer.config["activation"]]()
+            )
+        out = {
+            "channels": layer.config["filters"],
+            "outfilters": layer.config["filters"],
+            "block": block
+        }
+        return out
+    
+    def __lfc_shortcut(self, layer, outfilters, current_channels):
+        return {"outfilters": current_channels, "block": [layer]}
+        
+    def __lfc_yolo(self, layer, outfilters, current_channels):
+        if self.n_classes != layer.config["classes"] and self.n_classes != 0:
+            # Weird config thing with classes being detection layer specific
+            print("There are different numbers of classes in the yolo layers.")
+        self.n_classes = layer.config["classes"]
+        return {"outfilters": 0, "block": [layer]}
+    
+    def __lfc_route(self, layer, outfilters, current_channels):
+        if layer.config["layers"][0] < 0:
+            c1 = outfilters[len(self.layers) + layer.config["layers"][0]]
+        else:
+            c1 = outfilters[layer.config["layers"][0]]
+        try:
+            if layer.config["layers"][1] < 0:
+                c2 = outfilters[len(self.layers) + layer.config["layers"][1]]
+            else:
+                c2 = outfilters[layer.config["layers"][1]]
+        except IndexError:
+            c2 = 0
+        return {"channels": c1+c2, "outfilters": c1+c2, "block": [layer]}
+    
+    def __lfc_upsample(self, layer, outfilters, current_channels):
+        return {"outfilters": current_channels, "block": [layer]}
 
     def __get_layer_names(self):
         unraveled = []
