@@ -13,12 +13,6 @@ class Yolo-Gru(yolo.YOLO):
         super(Yolo-Gru, self).__init__
         self.map_lfc_layer["gru"] = self.__lfc_gru
         
-    @classmethod
-    def from_config(cls, config, labels="labels/coco.names"):
-        net = cls(labels)
-        net.layers_from_config(config)
-        return net
-        
     def __lfc_gru(self, layer, outfilters, current_channels):
         # Parse a gru layer and insert it into the self.layers
         pass
