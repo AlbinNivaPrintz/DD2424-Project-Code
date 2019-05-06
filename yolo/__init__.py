@@ -12,7 +12,7 @@ class YOLO(nn.Module):
         "leaky": nn.LeakyReLU,
     }
 
-    def __init__(self, labels="labels/coco.names"):
+    def __init__(self, config, labels="labels/coco.names", init_layers=True):
         super(YOLO, self).__init__()
         self.labelmap = self.get_label_map(labels)
         self.optimizer = None
@@ -28,19 +28,21 @@ class YOLO(nn.Module):
             "Upsample": self.__lfc_upsample,
             "Route": self.__lfc_route
         }
-        self.train_yolo = False
+        if init_layers:
+            self.layers_from_config(config)
+            self._train_yolo = False
         
     @property
     def train_yolo(self):
-        return self.train_yolo
+        return self._train_yolo
     
     @train_yolo.setter
     def train_yolo(self, train_yolo):
-        self.train_yolo = train_yolo
+        self._train_yolo = train_yolo
         for block in self.layers:
             for mod in block:
                 if isinstance(mod, nn.Module):
-                    mod.requires_grad_(train_yolo)
+                    mod.requires_grad = train_yolo
 
     @classmethod
     def from_config(cls, config, labels="labels/coco.names"):
@@ -241,48 +243,12 @@ class YOLO(nn.Module):
             this_block = block_record[i]
             for j, mod in enumerate(block):
                 if isinstance(mod, cr.Route):
-                    if mod.config["layers"][0] < 0:
-                        idx = i + mod.config["layers"][0] + 1
-                    else:
-                        idx = mod.config["layers"][0]
-                    if len(mod.config["layers"]) == 1:
-                        this_block = block_record[idx]
-                    else:
-                        if mod.config["layers"][1] < 0:
-                            idx2 = i + mod.config["layers"][1] + 1
-                        else:
-                            idx2 = mod.config["layers"][1]
-                        this_block = torch.cat((block_record[idx], block_record[idx2]), dim=1)
+                    this_block = self.forward_route(mod, this_block, block_record, i)
                 elif isinstance(mod, cr.Shortcut):
-                    this_block = this_block + block_record[i+mod.config["from"]+1]
+                    this_block = self.forward_shortcut(mod, this_block, block_record, i)
                 elif isinstance(mod, cr.Yolo):
                     # Detection layer
-                    n_batch = this_block.size(0)
-                    scale = self.im_size[0] // this_block.size(2)
-                    grid_size = this_block.size(2)
-                    label_dim = 5 + self.n_classes
-                    anchors = [mod.config["anchors"][i] for i in mod.config["mask"]]
-                    # Make anchors relative to grid
-                    anchors = torch.tensor([[anchor[0]/scale, anchor[1]/scale] for anchor in anchors])
-                    expanded_anchors = anchors.repeat(1, grid_size * grid_size, 1)
-                    # Desired format (bx, by, bw, bh, c, pc1, ..., pcC) of length label_dim
-                    formatted = this_block.view((n_batch, len(anchors)*label_dim, grid_size*grid_size))
-                    formatted = formatted.transpose(1, 2).contiguous()
-                    formatted = formatted.view(
-                        (n_batch, grid_size*grid_size*len(anchors), label_dim)
-                    )
-                    # Transform t_x to b_x
-                    c_x = np.repeat(np.arange(0, grid_size), grid_size).reshape((-1, 1))
-                    c_y = np.tile(np.arange(0, grid_size), grid_size).reshape((-1, 1))
-                    c_x_y = np.hstack((c_y, c_x)).repeat(len(anchors), axis=0)
-                    c_x_y = torch.from_numpy(c_x_y).view(
-                        (n_batch, grid_size*grid_size*len(anchors), 2)
-                    )
-                    formatted[:, :, 0:2] = torch.sigmoid(formatted[:, :, 0:2]) + c_x_y.float()
-                    formatted[:, :, 4] = torch.sigmoid(formatted[:, :, 4])
-                    formatted[:, :, 2:4] = expanded_anchors * torch.exp(formatted[:, :, 2:4])
-                    formatted[:, :, 5:] = torch.sigmoid(formatted[:, :, 5:])
-                    formatted[:, :, :4] *= scale
+                    formatted = self.forward_yolo(mod, this_block)
                     if output is None:
                         output = formatted
                     else:
@@ -291,10 +257,7 @@ class YOLO(nn.Module):
                             dim=1
                         )
                 elif isinstance(mod, cr.Upsample):
-                    this_block = F.interpolate(
-                        this_block,
-                        scale_factor=mod.config["stride"], mode="bilinear", align_corners=False
-                    )
+                    this_block = self.forward_upsample(mod, this_block)
                 elif isinstance(mod, nn.Module):
                     try:
                         this_block = mod(this_block)
@@ -303,6 +266,58 @@ class YOLO(nn.Module):
                         raise e
             block_record.append(this_block)
         return output
+        
+    def forward_shortcut(self, mod, this_block, block_record, i):
+        return this_block + block_record[i+mod.config["from"]+1]
+        
+    def forward_route(self, mod, this_block, block_record, i):
+        if mod.config["layers"][0] < 0:
+            idx = i + mod.config["layers"][0] + 1
+        else:
+            idx = mod.config["layers"][0]
+        if len(mod.config["layers"]) == 1:
+            return block_record[idx]
+        else:
+            if mod.config["layers"][1] < 0:
+                idx2 = i + mod.config["layers"][1] + 1
+            else:
+                idx2 = mod.config["layers"][1]
+            return torch.cat((block_record[idx], block_record[idx2]), dim=1)
+        
+    def forward_upsample(self, mod, this_block):
+        return F.interpolate(
+            this_block,
+            scale_factor=mod.config["stride"], mode="bilinear", align_corners=False
+        )
+        
+    def forward_yolo(self, mod, this_block):
+        n_batch = this_block.size(0)
+        scale = self.im_size[0] // this_block.size(2)
+        grid_size = this_block.size(2)
+        label_dim = 5 + self.n_classes
+        anchors = [mod.config["anchors"][i] for i in mod.config["mask"]]
+        # Make anchors relative to grid
+        anchors = torch.tensor([[anchor[0]/scale, anchor[1]/scale] for anchor in anchors])
+        expanded_anchors = anchors.repeat(1, grid_size * grid_size, 1)
+        # Desired format (bx, by, bw, bh, c, pc1, ..., pcC) of length label_dim
+        formatted = this_block.view((n_batch, len(anchors)*label_dim, grid_size*grid_size))
+        formatted = formatted.transpose(1, 2).contiguous()
+        formatted = formatted.view(
+            (n_batch, grid_size*grid_size*len(anchors), label_dim)
+        )
+        # Transform t_x to b_x
+        c_x = np.repeat(np.arange(0, grid_size), grid_size).reshape((-1, 1))
+        c_y = np.tile(np.arange(0, grid_size), grid_size).reshape((-1, 1))
+        c_x_y = np.hstack((c_y, c_x)).repeat(len(anchors), axis=0)
+        c_x_y = torch.from_numpy(c_x_y).view(
+            (n_batch, grid_size*grid_size*len(anchors), 2)
+        )
+        formatted[:, :, 0:2] = torch.sigmoid(formatted[:, :, 0:2]) + c_x_y.float()
+        formatted[:, :, 4] = torch.sigmoid(formatted[:, :, 4])
+        formatted[:, :, 2:4] = expanded_anchors * torch.exp(formatted[:, :, 2:4])
+        formatted[:, :, 5:] = torch.sigmoid(formatted[:, :, 5:])
+        formatted[:, :, :4] *= scale
+        return formatted
         
     def detect(self, X, outfilename="test.png", gpu=False):
         print("Performing forward pass.")
@@ -404,6 +419,28 @@ class YOLO(nn.Module):
         
     def detect_on_webcam(self, size=416):
         cap = cv2.VideoCapture(0)
+
+        while(True):
+            # Capture frame-by-frame
+            ret, frame = cap.read()
+            x, im = cv_to_torch(frame, size=size)
+            out = self.forward(x, gpu=False)
+            bbs = self.bbs_from_detection(out, 0.5, 0.5)
+            if bbs[0] is not None:
+                img_draw = self.draw_bbs(im, bbs[0])
+                img_draw = cv2.cvtColor(img_draw, cv2.COLOR_RGB2BGR)
+                # Display the resulting frame
+                cv2.imshow('detection',img_draw)
+            else:
+                cv2.imshow('detection',frame)
+            if cv2.waitKey(1) & 0xFF == ord('q'):
+                break
+
+        # When everything done, release the capture
+        cap.release()
+        
+    def detect_on_video(self, filename, size=416):
+        cap = cv2.VideoCapture(filename)
 
         while(True):
             # Capture frame-by-frame
