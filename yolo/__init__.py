@@ -18,7 +18,7 @@ class YOLO(nn.Module):
         self.optimizer = None
         self.channels = 0
         self.n_classes = 0
-        self.layers = []
+        self.layers = nn.ModuleList([])
         self.im_size = (0, 0)
         self.map_lfc_layer = {
             "Net": self.__lfc_net,
@@ -173,7 +173,7 @@ class YOLO(nn.Module):
         return {"channels": self.channels}
         
     def __lfc_convolutional(self, layer, outfilters, current_channels):
-        block = []
+        block = nn.ModuleList([])
         pad = (layer.config["size"] - 1) // 2 if layer.config["pad"] else 0
         block.append(
             nn.Conv2d(
@@ -199,14 +199,14 @@ class YOLO(nn.Module):
         return out
     
     def __lfc_shortcut(self, layer, outfilters, current_channels):
-        return {"outfilters": current_channels, "block": [layer]}
-        
+        return {"outfilters": current_channels, "block": nn.ModuleList([layer])}
+
     def __lfc_yolo(self, layer, outfilters, current_channels):
         if self.n_classes != layer.config["classes"] and self.n_classes != 0:
             # Weird config thing with classes being detection layer specific
             print("There are different numbers of classes in the yolo layers.")
         self.n_classes = layer.config["classes"]
-        return {"outfilters": 0, "block": [layer]}
+        return {"outfilters": 0, "block": nn.ModuleList([layer])}
     
     def __lfc_route(self, layer, outfilters, current_channels):
         if layer.config["layers"][0] < 0:
@@ -220,10 +220,10 @@ class YOLO(nn.Module):
                 c2 = outfilters[layer.config["layers"][1]]
         except IndexError:
             c2 = 0
-        return {"channels": c1+c2, "outfilters": c1+c2, "block": [layer]}
+        return {"channels": c1+c2, "outfilters": c1+c2, "block": nn.ModuleList([layer])}
     
     def __lfc_upsample(self, layer, outfilters, current_channels):
-        return {"outfilters": current_channels, "block": [layer]}
+        return {"outfilters": current_channels, "block": nn.ModuleList([layer])}
 
     def __get_layer_names(self):
         unraveled = []
@@ -261,8 +261,8 @@ class YOLO(nn.Module):
                 elif isinstance(mod, nn.Module):
                     try:
                         this_block = mod(this_block)
-                    except RuntimeError as e:
-                        print(["{}\n".format(x.size(1)) for x in block_record])
+                    except TypeError as e:
+                        print(this_block)
                         raise e
             block_record.append(this_block)
         return output
@@ -319,18 +319,18 @@ class YOLO(nn.Module):
         formatted[:, :, :4] *= scale
         return formatted
         
-    def detect(self, X, outfilename="test.png", gpu=False):
+    def detect_on_image(self, filename, outfilename="test.png", gpu=False):
+        X, img = data_from_image(filename)
         print("Performing forward pass.")
-        with torch.nograd():
+        with torch.no_grad():
             out = self.forward(X, gpu)
         print("Calculating bounding boxes.")
-        bbs = net.bbs_from_detection(out, 0.5, 0.5)
+        bbs = self.bbs_from_detection(out, 0.5, 0.5)
         print("Drawing boxes.")
-        img_draw = net.draw_bbs(img, bbs[0])
+        img_draw = self.draw_bbs(img, bbs[0])
         img_draw = cv2.cvtColor(img_draw, cv2.COLOR_RGB2BGR)
         cv2.imwrite("test.png", img_draw)
-        print("Done! Wrote to {}.".format(outfilename))
-                
+        print("Done! Wrote to {}.".format(outfilename))     
 
     def bbs_from_detection(self, detection, threshold, nms_threshold):
         # Suppress where objectness is lower than threshold

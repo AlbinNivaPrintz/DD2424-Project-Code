@@ -1,14 +1,16 @@
 import re
+from torch import nn
 
-class Layer:
+class Layer(nn.Module):
     def __init__(self):
-        raise NotImplementedError
+        super(Layer, self).__init__()
     
     def load_attr(self, attr):
         raise NotImplementedError
 
 class Net(Layer):
     def __init__(self):
+        super(Net, self).__init__()
         self.name = "Net"
         self.config = {}
 
@@ -41,6 +43,7 @@ class Net(Layer):
 
 class Convolutional(Layer):
     def __init__(self):
+        super(Convolutional, self).__init__()
         self.name = "Convolutional"
         self.config = {}
 
@@ -58,6 +61,7 @@ class Convolutional(Layer):
 
 class Shortcut(Layer):
     def __init__(self):
+        super(Shortcut, self).__init__()
         self.name = "Shortcut"
         self.config = {}
 
@@ -71,6 +75,7 @@ class Shortcut(Layer):
 
 class Yolo(Layer):
     def __init__(self):
+        super(Yolo, self).__init__()
         self.name = "Yolo"
         self.config = {}
 
@@ -97,6 +102,7 @@ class Yolo(Layer):
 
 class Route(Layer):
     def __init__(self):
+        super(Route, self).__init__()
         self.name = "Route"
         self.config = {}
 
@@ -113,6 +119,7 @@ class Route(Layer):
 
 class Upsample(Layer):
     def __init__(self):
+        super(Upsample, self).__init__()
         self.name = "Upsample"
         self.config = {}
 
@@ -125,6 +132,7 @@ class Upsample(Layer):
         
 class ConvGru(Layer):
     def __init__(self):
+        super(ConvGru, self).__init__()
         self.name = "ConvGru"
         self.config = {}
         
