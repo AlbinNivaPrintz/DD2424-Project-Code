@@ -122,6 +122,21 @@ class Upsample(Layer):
         }
         attr = attr.replace(" ", "").split("=")
         self.config[attr[0]] = types[attr[0]](attr[1])
+        
+class ConvGru(Layer):
+    def __init__(self):
+        self.name = "ConvGru"
+        self.config = {}
+        
+    def load_attr(self, attr):
+        types = {
+            "filters": int,
+            "size": int,
+            "stride": int,
+            "pad": int,
+        }
+        attr = attr.replace(" ", "").split("=")
+        self.config[attr[0]] = types[attr[0]](attr[1])
 
 
 class Config:
@@ -164,6 +179,7 @@ class Config:
             "yolo": Yolo,
             "route": Route,
             "upsample": Upsample,
+            "convgru": ConvGru,
         }
         return layers[name]
 
