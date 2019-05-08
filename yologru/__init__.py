@@ -1,4 +1,5 @@
 import yolo
+from yolo import YOLO
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -78,7 +79,7 @@ class YoloLoss(nn.Module):
         quit()
     
 
-class YoloGru(yolo.YOLO):
+class YoloGru(YOLO):
     
     def __init__(self, config, labels="labels/coco.names"):
         super(YoloGru, self).__init__(config, labels, False)
@@ -155,7 +156,7 @@ class YoloGru(yolo.YOLO):
             block_record.append(this_block)
         return output
         
-    def train(self, data, parameters={"epochs": 2}):
+    def train(self, data, label, parameters={"epochs": 2}):
         criterion = YoloLoss()
         optimizer = o.Adam(self.parameters())
         
@@ -165,6 +166,8 @@ class YoloGru(yolo.YOLO):
             for i, one_data in enumerate(data):
                 
                 X, labels = one_data
+                print(labels)
+                quit()
                 optimizer.zero_grad()
         
                 # forward + backward + optimizer
@@ -180,4 +183,20 @@ class YoloGru(yolo.YOLO):
                     running_loss = 0.0
                 
         print("Done")
+
+    def dump(self, filename="model.pkl"):
+        import pickle
+        with open(filename, 'wb') as f:
+            pickle.dump(self.layers, f)
+
+    @classmethod
+    def load(cls, config="conf/yolov3-gru.cfg", labels="labels/coco.names", filename="model.pkl"):
+        import pickle
+        with open(filename, 'rb') as f:
+            layers = pickle.load(f)
+        net = cls(config, labels)
+        net.layers = layers
+        net.train_yolo = False
+        return net
+        
         
