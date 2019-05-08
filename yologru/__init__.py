@@ -67,15 +67,23 @@ class ConvGru2d(nn.Module):
         h_tilde = torch.tanh(hi + hh)
         h_new = (1 - z)*hx + z*h_tilde
         return h_new
+        
+       
+class YoloLoss(nn.Module):
+    def __init__(self):
+        super(YoloLoss, self).__init__()
+        
+    def forward(self, outputs, labels):
+        print(outputs.size(), labels.size())
+        quit()
     
 
 class YoloGru(yolo.YOLO):
     
     def __init__(self, config, labels="labels/coco.names"):
-        super(YoloGru, self).__init__(config, init_layers=False)
+        super(YoloGru, self).__init__(config, labels, False)
         self.map_lfc_layer["ConvGru"] = self.__lfc_gru
         self.memory = {}
-        self._train_yolo = False
         self._memory_key_counter = 0
         self.layers_from_config(config)
         self._train_yolo = False
@@ -94,7 +102,7 @@ class YoloGru(yolo.YOLO):
         
     def __lfc_gru(self, layer, outfilters, current_channels):
         # Parse a gru layer and insert it into the self.layers
-        block = []
+        block = nn.ModuleList([])
         # This should (if needed) be a ConvGru2d later
         block.append(ConvGru2d(
             current_channels,
@@ -147,6 +155,29 @@ class YoloGru(yolo.YOLO):
             block_record.append(this_block)
         return output
         
-    def train(X, Y):
-        optimizer = o.Adam()
+    def train(self, data, parameters={"epochs": 2}):
+        criterion = YoloLoss()
+        optimizer = o.Adam(self.parameters())
+        
+        running_loss = 0.0
+        for epoch in range(parameters["epochs"]):
+            # zero parameter gradients
+            for i, one_data in enumerate(data):
+                
+                X, labels = one_data
+                optimizer.zero_grad()
+        
+                # forward + backward + optimizer
+                outputs = self(X)
+                loss = criterion(outputs, labels)
+                loss.backward()
+                optimizer.step()
+        
+                # print stats
+                running_loss += loss.item()
+                if i % 10 == 9:
+                    print(running_loss/10)
+                    running_loss = 0.0
+                
+        print("Done")
         
