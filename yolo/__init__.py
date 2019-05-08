@@ -309,7 +309,7 @@ class YOLO(nn.Module):
         c_x = np.repeat(np.arange(0, grid_size), grid_size).reshape((-1, 1))
         c_y = np.tile(np.arange(0, grid_size), grid_size).reshape((-1, 1))
         c_x_y = np.hstack((c_y, c_x)).repeat(len(anchors), axis=0)
-        c_x_y = torch.from_numpy(c_x_y).view(
+        c_x_y = torch.from_numpy(np.tile(c_x_y, (n_batch, 1, 1, 1))).view(
             (n_batch, grid_size*grid_size*len(anchors), 2)
         )
         formatted[:, :, 0:2] = torch.sigmoid(formatted[:, :, 0:2]) + c_x_y.float()
@@ -317,20 +317,7 @@ class YOLO(nn.Module):
         formatted[:, :, 2:4] = expanded_anchors * torch.exp(formatted[:, :, 2:4])
         formatted[:, :, 5:] = torch.sigmoid(formatted[:, :, 5:])
         formatted[:, :, :4] *= scale
-        return formatted
-        
-    def detect_on_image(self, filename, outfilename="test.png", gpu=False):
-        X, img = data_from_image(filename)
-        print("Performing forward pass.")
-        with torch.no_grad():
-            out = self.forward(X, gpu)
-        print("Calculating bounding boxes.")
-        bbs = self.bbs_from_detection(out, 0.5, 0.5)
-        print("Drawing boxes.")
-        img_draw = self.draw_bbs(img, bbs[0])
-        img_draw = cv2.cvtColor(img_draw, cv2.COLOR_RGB2BGR)
-        cv2.imwrite("test.png", img_draw)
-        print("Done! Wrote to {}.".format(outfilename))     
+        return formatted  
 
     def bbs_from_detection(self, detection, threshold, nms_threshold):
         # Suppress where objectness is lower than threshold
@@ -460,6 +447,37 @@ class YOLO(nn.Module):
 
         # When everything done, release the capture
         cap.release()
+        
+            
+    def detect_on_image(self, filename, outfilename="test.png", gpu=False):
+        X, img = data_from_image(filename)
+        print("Performing forward pass.")
+        with torch.no_grad():
+            out = self.forward(X, gpu)
+        print("Calculating bounding boxes.")
+        bbs = self.bbs_from_detection(out, 0.5, 0.5)
+        print("Drawing boxes.")
+        img_draw = self.draw_bbs(img, bbs[0])
+        img_draw = cv2.cvtColor(img_draw, cv2.COLOR_RGB2BGR)
+        cv2.imwrite("test.png", img_draw)
+        print("Done! Wrote to {}.".format(outfilename))
+    
+    def detect_on_images(self, filename, outdir="test", suffix="png", gpu=False):
+        data = data_from_path(filename, suffix=suffix)
+        with torch.no_grad():
+            out = self.forward(data["X"], gpu)
+        print("Calculating bounding boxes.")
+        bbs = self.bbs_from_detection(out, 0.5, 0.5)
+        print("Drawing boxes.")
+        for i, im in enumerate(data["ims"]):
+            if bbs[i] is not None:
+                img_draw = self.draw_bbs(im, bbs[i])
+                img_draw = cv2.cvtColor(img_draw, cv2.COLOR_RGB2BGR)
+                cv2.imwrite(outdir + "/test{}.png".format(i), img_draw)
+            else:
+                img_draw = cv2.cvtColor(im, cv2.COLOR_RGB2BGR)
+                cv2.imwrite(outdir + "/test{}.png".format(i), img_draw)
+        print("Done! Wrote to {}.".format(outdir))
 
 
 def data_from_image(filename, size=416):
@@ -475,7 +493,7 @@ def data_from_video(filename, size=416):
         if not ret:
             # End of video
             break
-        tens = cv_to_torch(frame_bgr, size=size)
+        tens, im = cv_to_torch(frame_bgr, size=size)
         if out is None:
             out = tens
         else:
@@ -485,20 +503,21 @@ def data_from_video(filename, size=416):
     return out
 
 
-def data_from_path(path, size=416):
+def data_from_path(path, size=416, suffix=".png"):
     from os import listdir
     from os.path import isfile, join
-    images = [f for f in listdir(path) if isfile(join(path, f)) and f.endswith(".png")]
+    images = [f for f in listdir(path) if isfile(join(path, f)) and f.endswith(suffix)]
     order = np.argsort([int(x.split(".")[0]) for x in images])
     images = [images[i] for i in order]
-    out = None
+    out = {"X": None, "ims": []}
     for image in images:
         im = cv2.imread(join(path, image))
-        tens = cv_to_torch(im, size=size)
-        if out is None:
-            out = tens
+        tens, im = cv_to_torch(im, size=size)
+        if out["X"] is None:
+            out["X"] = tens
         else:
-            out = torch.cat((out, tens), dim=0)
+            out["X"] = torch.cat((out["X"], tens), dim=0)
+        out["ims"].append(im)
     return out
 
 
