@@ -207,12 +207,3 @@ class YoloGru(YOLO):
         net.train_yolo = False
         return net
         
-        
-    def read_VTB_data(filename, label, sep=","):
-        with open(filename, "r") as f:
-            lines = f.readlines()
-        for i, line in enumerate(lines):
-            lines[i] = line.strip().split(sep)
-            lines[i] = [int(string) for string in lines[i]]
-            lines[i].append(label)
-        return torch.Tensor(lines)

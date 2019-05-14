@@ -342,7 +342,6 @@ class YOLO(nn.Module):
         output = []
         for i in range(bounding_box.size(0)):
             non_zero = bounding_box[i, bounding_box[i, :, 5]!=0, :]
-            # TODO Here we are gonna do NMS
             unique_classes = torch.unique(non_zero[:, 4]).type(torch.IntTensor)
             output_this_frame = None
             for cls in unique_classes:
@@ -503,21 +502,28 @@ def data_from_video(filename, size=416):
     return out
 
 
-def data_from_path(path, size=416, suffix=".png"):
+def data_from_path(path, size=416, suffix=".png", bbfilename=None, bbclass=None, bbsep=","):
     from os import listdir
     from os.path import isfile, join
     images = [f for f in listdir(path) if isfile(join(path, f)) and f.endswith(suffix)]
     order = np.argsort([int(x.split(".")[0]) for x in images])
     images = [images[i] for i in order]
-    out = {"X": None, "ims": []}
-    for image in images:
+    n = len(images)
+    out = {"X": None, "ims": [None]*n}
+    for i, image in enumerate(images):
         im = cv2.imread(join(path, image))
         tens, im = cv_to_torch(im, size=size)
         if out["X"] is None:
-            out["X"] = tens
+            out["X"] = torch.zeros(n, tens.size(1), tens.size(2), tens.size(3))
+            out["X"][i] = tens
         else:
-            out["X"] = torch.cat((out["X"], tens), dim=0)
-        out["ims"].append(im)
+            out["X"][i] = tens
+        out["ims"][i] = im
+        if i % 10 == 9:
+            print("Loaded {} images.".format(i+1))
+    if bbfilename is not None:
+        assert bbclass is not None, "Needs a class for the ground truth object."
+        out["label"] = read_VTB_data(bbfilename, bbclass, bbsep)
     return out
 
 
@@ -534,3 +540,13 @@ def cv_to_torch(cv_img, size=None):
         raise e
     # When everything done, release the capture
     cap.release()
+
+def read_VTB_data(filename, label, sep=","):
+    with open(filename, "r") as f:
+        lines = f.readlines()
+    for i, line in enumerate(lines):
+        lines[i] = line.strip().split(sep)
+        lines[i] = [int(string) for string in lines[i]]
+        lines[i].append(label)
+    return torch.Tensor(lines)
+
