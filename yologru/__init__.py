@@ -74,7 +74,9 @@ class YoloLoss(nn.Module):
     def __init__(self):
         super(YoloLoss, self).__init__()
         
-    def forward(self, outputs, labels):
+    def forward(self, labels, this_frame, last_frame):
+        if last_frame is None:
+            last_frame = outputs
         print(outputs.size(), labels.size())
         quit()
     
@@ -162,6 +164,7 @@ class YoloGru(YOLO):
         
         running_loss = 0.0
         for epoch in range(parameters["epochs"]):
+            last_frame = None
             # zero parameter gradients
             for i, one_data in enumerate(data):
                 
@@ -172,7 +175,8 @@ class YoloGru(YOLO):
         
                 # forward + backward + optimizer
                 outputs = self(X)
-                loss = criterion(outputs, labels)
+                this_frame = self.most_similar(labels, outputs)
+                loss = criterion(labels, this_frame, last_frame)
                 loss.backward()
                 optimizer.step()
         
@@ -183,6 +187,10 @@ class YoloGru(YOLO):
                     running_loss = 0.0
                 
         print("Done")
+
+    @staticmethod
+    def most_similar(labels, outputs):
+        pass
 
     def dump(self, filename="model.pkl"):
         import pickle
@@ -200,3 +208,11 @@ class YoloGru(YOLO):
         return net
         
         
+    def read_VTB_data(filename, label, sep=","):
+        with open(filename, "r") as f:
+            lines = f.readlines()
+        for i, line in enumerate(lines):
+            lines[i] = line.strip().split(sep)
+            lines[i] = [int(string) for string in lines[i]]
+            lines[i].append(label)
+        return torch.Tensor(lines)
