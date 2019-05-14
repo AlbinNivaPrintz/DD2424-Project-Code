@@ -523,7 +523,7 @@ def data_from_path(path, size=416, suffix=".png", bbfilename=None, bbclass=None,
             print("Loaded {} images.".format(i+1))
     if bbfilename is not None:
         assert bbclass is not None, "Needs a class for the ground truth object."
-        out["label"] = read_VTB_data(bbfilename, bbclass, bbsep)
+        out["labels"] = read_VTB_data(bbfilename, bbclass, bbsep)
     return out
 
 

@@ -21,22 +21,25 @@ class ConvGru2d(nn.Module):
         self.pad = pad
         self.stride = stride
         self.activation_kernels_i = Parameter(
-            torch.Tensor(hidden_channels, self.in_channels, size, size)
+            torch.zeros(hidden_channels, self.in_channels, size, size)
         )
         self.reset_kernels_i = Parameter(
-            torch.Tensor(hidden_channels, self.in_channels, size, size)
+            torch.zeros(hidden_channels, self.in_channels, size, size)
         )
         self.activation_kernels_h = Parameter(
-            torch.Tensor(hidden_channels, self.in_channels, size, size)
+            torch.zeros(hidden_channels, self.in_channels, size, size)
         )
         self.reset_kernels_h = Parameter(
-            torch.Tensor(hidden_channels, self.in_channels, size, size)
+            torch.zeros(hidden_channels, self.in_channels, size, size)
         )
         self.kernels_i = Parameter(
-            torch.Tensor(hidden_channels, self.in_channels, size, size)
+            torch.zeros(hidden_channels, self.in_channels, size, size)
         )
+        half = size // 2
+        for i in range(self.in_channels):
+            self.kernels_i[i, i, half, half] = 1
         self.kernels_h = Parameter(
-            torch.Tensor(hidden_channels, self.in_channels, size, size)
+            torch.zeros(hidden_channels, self.in_channels, size, size)
         )
     
     def forward(self, input, hx=None):
@@ -58,15 +61,30 @@ class ConvGru2d(nn.Module):
         zi = F.conv2d(input, activation_kernels_i, padding=self.pad, stride=self.stride)
         zh = F.conv2d(hx, activation_kernels_h, padding=self.pad, stride=self.stride)
         z = torch.sigmoid(zi + zh)
+        print("z")
+        print(z[0, 0, :10, :10])
         # Reset
         ri = F.conv2d(input, reset_kernels_i, padding=self.pad, stride=self.stride)
         rh = F.conv2d(hx, reset_kernels_h, padding=self.pad, stride=self.stride)
         r = torch.sigmoid(ri + rh)
+        print("r")
+        print(r[0, 0, :10, :10])
         # Candidate
+        print("input")
+        print(input[0, 0, :10, :10])
+        print("kernels_i")
+        print(kernels_i[0, :10, :, :])
         hi = F.conv2d(input, kernels_i, padding=self.pad, stride=self.stride)
+        print("hi")
+        print(hi[0, 0, :10, :10])
         hh = F.conv2d(r*hx, kernels_h, padding=self.pad, stride=self.stride)
         h_tilde = torch.tanh(hi + hh)
+        print("h_tilde")
+        print(h_tilde[0, 0, :10, :10])
         h_new = (1 - z)*hx + z*h_tilde
+        print("h_new")
+        print(h_new[0, 0, :10, :10])
+        quit()
         return h_new
         
        
@@ -158,7 +176,7 @@ class YoloGru(YOLO):
             block_record.append(this_block)
         return output
         
-    def train(self, data, label, parameters={"epochs": 2}):
+    def train(self, data, parameters={"epochs": 2}):
         criterion = YoloLoss()
         optimizer = o.Adam(self.parameters())
         
@@ -169,12 +187,13 @@ class YoloGru(YOLO):
             for i, one_data in enumerate(data):
                 
                 X, labels = one_data
-                print(labels)
-                quit()
                 optimizer.zero_grad()
         
                 # forward + backward + optimizer
                 outputs = self(X)
+                bbs = self.bbs_from_detection(outputs, 0.5, 0.5)
+                print(bbs, labels)
+                quit()
                 this_frame = self.most_similar(labels, outputs)
                 loss = criterion(labels, this_frame, last_frame)
                 loss.backward()
