@@ -20,32 +20,61 @@ class ConvGru2d(nn.Module):
         self.size = size
         self.pad = pad
         self.stride = stride
-        self.activation_kernels_i = Parameter(
-            torch.zeros(hidden_channels, self.in_channels, size, size)
-        )
-        self.reset_kernels_i = Parameter(
-            torch.zeros(hidden_channels, self.in_channels, size, size)
-        )
-        self.activation_kernels_h = Parameter(
-            torch.zeros(hidden_channels, self.in_channels, size, size)
-        )
-        self.reset_kernels_h = Parameter(
-            torch.zeros(hidden_channels, self.in_channels, size, size)
-        )
-        self.kernels_i = Parameter(
-            torch.zeros(hidden_channels, self.in_channels, size, size)
-        )
+
+        activation_kernels_i = torch.zeros(hidden_channels, self.in_channels, size, size)
+        reset_kernels_i = torch.zeros(hidden_channels, self.in_channels, size, size)
+        activation_kernels_h = torch.zeros(hidden_channels, self.in_channels, size, size)
+        reset_kernels_h = torch.zeros(hidden_channels, self.in_channels, size, size)
+        kernels_i = torch.zeros(hidden_channels, self.in_channels, size, size)
         half = size // 2
         for i in range(self.in_channels):
-            self.kernels_i[i, i, half, half] = 1
-        self.kernels_h = Parameter(
-            torch.zeros(hidden_channels, self.in_channels, size, size)
+            kernels_i[i, i, half, half] = 1
+        kernels_h = torch.zeros(hidden_channels, self.in_channels, size, size)
+
+        std = 1 / (self.in_channels*size**2)
+        # Random initalization
+        torch.normal(
+                activation_kernels_i,
+                std*torch.ones_like(activation_kernels_i),
+                out=activation_kernels_i
         )
+        torch.normal(
+                reset_kernels_i,
+                std*torch.ones_like(activation_kernels_i),
+                out=reset_kernels_i
+        )
+        torch.normal(
+                activation_kernels_h,
+                std*torch.ones_like(activation_kernels_i),
+                out=activation_kernels_h
+        )
+        torch.normal(
+                reset_kernels_i,
+                std*torch.ones_like(activation_kernels_i),
+                out=reset_kernels_h
+        )
+        torch.normal(
+                kernels_i,
+                std*torch.ones_like(kernels_i),
+                out=kernels_i
+        )
+        torch.normal(
+                kernels_h,
+                std*torch.ones_like(kernels_h),
+                out=kernels_h
+        )
+        self.activation_kernels_i = Parameter(activation_kernels_i)
+        self.reset_kernels_i = Parameter(reset_kernels_i)
+        self.activation_kernels_h = Parameter(activation_kernels_h)
+        self.reset_kernels_h = Parameter(reset_kernels_h)
+        self.kernels_i = Parameter(kernels_i)
+        self.kernels_h = Parameter(kernels_h)
+
     
     def forward(self, input, hx=None):
         # type: (Tensor, Optional[Tensor]) -> Tensor
         if hx is None:
-            hx = torch.zeros(input.size(0), self.hidden_channels, input.size(2), input.size(3))
+            hx = input.clone().detach()
         return self.conv_gru(
             input, hx,
             self.activation_kernels_i, self.reset_kernels_i, self.kernels_i,
