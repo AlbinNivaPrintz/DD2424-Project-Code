@@ -366,16 +366,16 @@ class YOLO(nn.Module):
             output.append(output_this_frame)
         return output
         
-    def iou(self, bbox, bboxes):
+    @staticmethod
+    def iou(bbox, bboxes):
         x1, y1, x2, y2, _, _ = bbox
-        area = (x2 - x1)*(y2 - y1)
-        areas = (bboxes[:, 2] - bboxes[:, 0])*(bboxes[:, 3] - bboxes[:, 1])
+        area = (x2 - x1)*(y1 - y2)
+        areas = (bboxes[:, 2] - bboxes[:, 0])*(bboxes[:, 1] - bboxes[:, 3])
         inter_x1 = torch.where(bboxes[:, 0] > x1, bboxes[:, 0], x1)
-        inter_y1 = torch.where(bboxes[:, 1] > y1, bboxes[:, 1], y1)
+        inter_y1 = torch.where(bboxes[:, 1] < y1, bboxes[:, 1], y1)
         inter_x2 = torch.where(bboxes[:, 2] < x2, bboxes[:, 2], x2)
-        inter_y2 = torch.where(bboxes[:, 3] < y2, bboxes[:, 3], y2)
-        unsigned_inter = (inter_x2 - inter_x1)*(inter_y2 - inter_y1)
-        inter_areas = torch.where(unsigned_inter > 0, unsigned_inter, torch.zeros_like(unsigned_inter))
+        inter_y2 = torch.where(bboxes[:, 3] > y2, bboxes[:, 3], y2)
+        inter_areas = (inter_x2 - inter_x1)*(inter_y1 - inter_y2)
         union = area + areas - inter_areas
         return inter_areas/union
 
