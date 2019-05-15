@@ -290,7 +290,7 @@ class YOLO(nn.Module):
             scale_factor=mod.config["stride"], mode="bilinear", align_corners=False
         )
         
-    def forward_yolo(self, mod, this_block):
+    def forward_yolo(self, mod, this_block, keep=False):
         n_batch = this_block.size(0)
         scale = self.im_size[0] // this_block.size(2)
         grid_size = this_block.size(2)
@@ -312,16 +312,23 @@ class YOLO(nn.Module):
         c_x_y = torch.from_numpy(np.tile(c_x_y, (n_batch, 1, 1, 1))).view(
             (n_batch, grid_size*grid_size*len(anchors), 2)
         )
+        if keep:
+            original = formatted.clone()
+        else:
+            original = None
         formatted[:, :, 0:2] = torch.sigmoid(formatted[:, :, 0:2]) + c_x_y.float()
         formatted[:, :, 4] = torch.sigmoid(formatted[:, :, 4])
         formatted[:, :, 2:4] = expanded_anchors * torch.exp(formatted[:, :, 2:4])
         formatted[:, :, 5:] = torch.sigmoid(formatted[:, :, 5:])
         formatted[:, :, :4] *= scale
-        return formatted  
+        if keep:
+            return formatted, original, scale
+        else:
+            return formatted
 
-    def bbs_from_detection(self, detection, threshold, nms_threshold):
+    def bbs_from_detection(self, detection, threshold, nms_threshold, return_idx=False):
         # Suppress where objectness is lower than threshold
-        mask = detection[:, :, 4] > threshold
+        mask = detection[:, :, 4] >= threshold
         mask = mask.view((mask.size(0), -1, 1)).expand_as(detection).type(torch.FloatTensor)
         cleared = detection * mask
 
@@ -355,7 +362,7 @@ class YOLO(nn.Module):
                     if current_box[5] == 0: continue
                     other_boxes = of_this_class[i+1:, :]
                     scores = self.iou(current_box, other_boxes)
-                    passed = scores < nms_threshold
+                    passed = scores <= nms_threshold
                     of_this_class[i+1:, :] *= passed.type(torch.FloatTensor).unsqueeze(1)
                 if output_this_frame is None:
                     output_this_frame = of_this_class[of_this_class[:, 5]!=0, :]
@@ -364,7 +371,13 @@ class YOLO(nn.Module):
                         (output_this_frame, of_this_class[of_this_class[:, 5]!=0, :]),
                         dim=0)
             output.append(output_this_frame)
-        return output
+        if return_idx:
+            idxs = []
+            for i in range(output[0].size(0)):
+                idxs.append(int(torch.prod(bounding_box[0] == output[0][i, :], 1).nonzero()))
+            return output, idxs
+        else:
+            return output
         
     @staticmethod
     def iou(bbox, bboxes):
@@ -375,7 +388,10 @@ class YOLO(nn.Module):
         inter_y1 = torch.where(bboxes[:, 1] > y1, bboxes[:, 1], y1)
         inter_x2 = torch.where(bboxes[:, 2] < x2, bboxes[:, 2], x2)
         inter_y2 = torch.where(bboxes[:, 3] < y2, bboxes[:, 3], y2)
-        inter_areas = (inter_x2 - inter_x1)*(inter_y2 - inter_y1)
+        dx = inter_x2 - inter_x1
+        dy = inter_y2 - inter_y1
+        unsigned_inter_areas = dx*dy
+        inter_areas = torch.where((dx > 0) * (dy > 0), unsigned_inter_areas, torch.zeros_like(unsigned_inter_areas))
         union = area + areas - inter_areas
         return inter_areas/union
 

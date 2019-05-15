@@ -88,7 +88,7 @@ class Yolo(Layer):
             "jitter": float,
             "ignore_thresh": float,
             "truth_thresh": int,
-            "random": int
+            "random": int,
         }
         attr = attr.replace(" ", "").split("=")
         if attr[0] in ["mask"]:

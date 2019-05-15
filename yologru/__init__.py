@@ -90,30 +90,15 @@ class ConvGru2d(nn.Module):
         zi = F.conv2d(input, activation_kernels_i, padding=self.pad, stride=self.stride)
         zh = F.conv2d(hx, activation_kernels_h, padding=self.pad, stride=self.stride)
         z = torch.sigmoid(zi + zh)
-        print("z")
-        print(z[0, 0, :10, :10])
         # Reset
         ri = F.conv2d(input, reset_kernels_i, padding=self.pad, stride=self.stride)
         rh = F.conv2d(hx, reset_kernels_h, padding=self.pad, stride=self.stride)
         r = torch.sigmoid(ri + rh)
-        print("r")
-        print(r[0, 0, :10, :10])
         # Candidate
-        print("input")
-        print(input[0, 0, :10, :10])
-        print("kernels_i")
-        print(kernels_i[0, :10, :, :])
         hi = F.conv2d(input, kernels_i, padding=self.pad, stride=self.stride)
-        print("hi")
-        print(hi[0, 0, :10, :10])
         hh = F.conv2d(r*hx, kernels_h, padding=self.pad, stride=self.stride)
         h_tilde = torch.tanh(hi + hh)
-        print("h_tilde")
-        print(h_tilde[0, 0, :10, :10])
         h_new = (1 - z)*hx + z*h_tilde
-        print("h_new")
-        print(h_new[0, 0, :10, :10])
-        quit()
         return h_new
         
        
@@ -121,10 +106,17 @@ class YoloLoss(nn.Module):
     def __init__(self):
         super(YoloLoss, self).__init__()
         
-    def forward(self, labels, this_frame, last_frame):
+    def forward(self, labels, this_frame, last_frame=None):
         if last_frame is None:
-            last_frame = outputs
-        print(outputs.size(), labels.size())
+            last_frame = this_frame
+        frame_loss = torch.zeros(labels.size(0)-1)
+        # Actual frame error
+        frame_loss[:2] = (this_frame[:2] - labels[:2])**2
+        frame_loss[2:4] = (torch.log(this_frame[2:4]/labels[2:4]))**2  # This is actually also squared error in t hehe
+        frame_loss[4] = 
+        # Smootheness error
+
+        print(this_frame, labels)
         quit()
     
 
@@ -170,9 +162,12 @@ class YoloGru(YOLO):
             "block": block
         }
         
-    def forward(self, x, gpu=False):
+    def forward(self, x, gpu=False, keep=False):
         block_record = [x]
         output = None
+        scale = None
+        if keep:
+            original = None
         for i, block in enumerate(self.layers):
             this_block = block_record[i]
             for j, mod in enumerate(block):
@@ -182,7 +177,11 @@ class YoloGru(YOLO):
                     this_block = self.forward_shortcut(mod, this_block, block_record, i)
                 elif isinstance(mod, cr.Yolo):
                     # Detection layer
-                    formatted = self.forward_yolo(mod, this_block)
+                    if keep:
+                        formatted, non_format, num_scale = self.forward_yolo(mod, this_block, keep=True)
+                        this_scale = torch.ones(non_format.size(1))*num_scale
+                    else:
+                        formatted = self.forward_yolo(mod, this_block)
                     if output is None:
                         output = formatted
                     else:
@@ -190,6 +189,18 @@ class YoloGru(YOLO):
                             (output, formatted),
                             dim=1
                         )
+                    if keep:
+                        if original is None:
+                            original = non_format
+                        else:
+                            original = torch.cat(
+                                (original, non_format),
+                                dim=1
+                            )
+                        if scale is None:
+                            scale = this_scale
+                        else:
+                            scale = torch.cat((scale, this_scale))
                 elif isinstance(mod, cr.Upsample):
                     this_block = self.forward_upsample(mod, this_block)
                 elif isinstance(mod, nn.Module):
@@ -203,7 +214,10 @@ class YoloGru(YOLO):
                         print(["{}\n".format(x.size(1)) for x in block_record])
                         raise e
             block_record.append(this_block)
-        return output
+        if keep:
+            return output, original, scale
+        else:
+            return output
         
     def train(self, data, parameters={"epochs": 2}):
         criterion = YoloLoss()
@@ -215,16 +229,50 @@ class YoloGru(YOLO):
             # zero parameter gradients
             for i, one_data in enumerate(data):
                 
-                X, labels = one_data
+                X, label = one_data
                 optimizer.zero_grad()
+                # Transform labels to top_left bottom_right
+                formatted_label = torch.zeros_like(label)
+                formatted_label[0] = label[0]
+                formatted_label[1] = label[1]
+                formatted_label[2] = label[0] + label[2]
+                formatted_label[3] = label[1] + label[3]
+                formatted_label[4] = label[4]
+                formatted_label[5] = label[5]
         
+                # Want: tx ty bw bh of the best predictor
                 # forward + backward + optimizer
-                outputs = self(X)
-                bbs = self.bbs_from_detection(outputs, 0.5, 0.5)
-                print(bbs, labels)
-                quit()
-                this_frame = self.most_similar(labels, outputs)
-                loss = criterion(labels, this_frame, last_frame)
+                outputs, originals, scales = self(X, keep=True)
+                originals = originals[0]  # t's
+                bbs, idx = self.bbs_from_detection(outputs, 0.5, 0.5, return_idx=True) # b's
+                bbs = bbs[0]
+                originals = torch.cat([originals[i].unsqueeze(0) for i in idx], dim=0)
+                # Here, we have the relevant ones!!!!
+                # This function should find the one and only relevant thing.
+                bb = self.most_similar_idx(formatted_label, bbs)
+                # Find index of this bb
+                idx = int(torch.prod(bbs == bb, 1).nonzero())
+                original = originals[idx]
+                scale = scales[idx]
+
+                this_frame = bb.clone()
+                this_frame[0:2] = original[0:2]
+                bb[0] = bb[0] + (bb[2] - bb[0]) / 2
+                bb[1] = bb[1] + (bb[3] - bb[1]) / 2
+                c_x = bb[0]/scale - torch.sigmoid(original[0])
+                c_y = bb[1]/scale - torch.sigmoid(original[1])
+                formatted_label[0] += label[2]/2
+                formatted_label[1] += label[3]/2
+                formatted_label[0] /= scale
+                formatted_label[1] /= scale
+                bx = formatted_label[0] - c_x
+                by = formatted_label[1] - c_y
+                eps = torch.Tensor([1e-5])
+                bx = min(1-eps, max(bx, eps))
+                by = min(1-eps, max(by, eps))
+                formatted_label[0] = torch.log((bx)/(1 - bx))
+                formatted_label[1] = torch.log((by)/(1 - by))
+                loss = criterion(formatted_label, this_frame, last_frame)
                 loss.backward()
                 optimizer.step()
         
@@ -236,9 +284,11 @@ class YoloGru(YOLO):
                 
         print("Done")
 
-    @staticmethod
-    def most_similar(labels, outputs):
-        pass
+    def most_similar_idx(self, label, bbs):
+        bbs = bbs[bbs[:, 4] == label[4], :]
+        ious = self.iou(label, bbs)
+        idx = torch.argmax(ious)
+        return bbs[idx]
 
     def dump(self, filename="model.pkl"):
         import pickle
