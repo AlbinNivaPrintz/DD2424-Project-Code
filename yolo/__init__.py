@@ -322,7 +322,7 @@ class YOLO(nn.Module):
         formatted[:, :, 5:] = torch.sigmoid(formatted[:, :, 5:])
         formatted[:, :, :4] *= scale
         if keep:
-            return formatted, original, scale
+            return formatted, original, scale, c_x_y.float()
         else:
             return formatted
 
@@ -538,8 +538,13 @@ def data_from_path(path, size=416, suffix=".png", bbfilename=None, bbclass=None,
         if i % 10 == 9:
             print("Loaded {} images.".format(i+1))
     if bbfilename is not None:
+        w, h, _ = out["ims"][0].shape
+        # FIXME Hardcoded image size!!!!
+        scale_w = 413 / w
+        scale_h = 413 / h
+        scaling = (scale_w, scale_h)
         assert bbclass is not None, "Needs a class for the ground truth object."
-        out["labels"] = read_VTB_data(bbfilename, bbclass, bbsep)
+        out["labels"] = read_VTB_data(bbfilename, bbclass, bbsep, scaling)
     return out
 
 
@@ -557,12 +562,17 @@ def cv_to_torch(cv_img, size=None):
     # When everything done, release the capture
     cap.release()
 
-def read_VTB_data(filename, label, sep=","):
+def read_VTB_data(filename, label, sep=",", scaling=(1, 1)):
     with open(filename, "r") as f:
         lines = f.readlines()
     for i, line in enumerate(lines):
         lines[i] = line.strip().split(sep)
         lines[i] = [int(string) for string in lines[i]]
         lines[i].extend((label, 1))
-    return torch.Tensor(lines)
+    lines = torch.Tensor(lines)
+    lines[:, 0] *= scaling[0]
+    lines[:, 1] *= scaling[1]
+    lines[:, 2] *= scaling[0]
+    lines[:, 3] *= scaling[1]
+    return lines
 

@@ -109,15 +109,29 @@ class YoloLoss(nn.Module):
     def forward(self, labels, this_frame, last_frame=None):
         if last_frame is None:
             last_frame = this_frame
-        frame_loss = torch.zeros(labels.size(0)-1)
         # Actual frame error
-        frame_loss[:2] = (this_frame[:2] - labels[:2])**2
-        frame_loss[2:4] = (torch.log(this_frame[2:4]/labels[2:4]))**2  # This is actually also squared error in t hehe
-        frame_loss[4] = 
-        # Smootheness error
+        frame_loss = torch.zeros_like(labels)
+        ## For the ones with nan in 0 or 1 should only count objectiveness so make them equal prediction everywhere else
+        nan_in_zero = torch.isnan(labels[:, 0])
+        nan_in_one = torch.isnan(labels[:, 1])
+        nan_in_any = nan_in_one + nan_in_zero > 0
+        labels[nan_in_any, :4] = this_frame[nan_in_any, :4]
+        labels[nan_in_any, 4] = -100
+        labels[nan_in_any, 5:] = this_frame[nan_in_any, 5:]
+        ## Last minute transform to probabilities of objectness and class probabilities
+        labels[:, 4:] = torch.sigmoid(labels[:, 4:])
+        this_frame[:, 4:] = torch.sigmoid(this_frame[:, 4:]) 
+        ## Squared error on the t's
+        frame_loss[:, :2] = (labels[:, :2] - this_frame[:, :2])**2
+        frame_loss[:, 2:4] = (torch.log(labels[:, 2:4] / this_frame[:, 2:4]))**2
+        ## Everything else gets binary cross entropy loss
+        frame_loss[:, 4:] = labels[:, 4:]*torch.log(labels[:, 4:]/this_frame[:, 4:]) + (1-labels[:, 4:])*torch.log((1-labels[:, 4:])/(1-this_frame[:, 4:]))
+        frame_loss_sum = torch.sum(frame_loss)
 
-        print(this_frame, labels)
-        quit()
+        # Smootheness error
+        smoothness_loss_sum = 0
+
+        return frame_loss_sum + smoothness_loss_sum
     
 
 class YoloGru(YOLO):
@@ -166,6 +180,7 @@ class YoloGru(YOLO):
         block_record = [x]
         output = None
         scale = None
+        c_x_y = None
         if keep:
             original = None
         for i, block in enumerate(self.layers):
@@ -178,7 +193,7 @@ class YoloGru(YOLO):
                 elif isinstance(mod, cr.Yolo):
                     # Detection layer
                     if keep:
-                        formatted, non_format, num_scale = self.forward_yolo(mod, this_block, keep=True)
+                        formatted, non_format, num_scale, c_x_y_this = self.forward_yolo(mod, this_block, keep=True)
                         this_scale = torch.ones(non_format.size(1))*num_scale
                     else:
                         formatted = self.forward_yolo(mod, this_block)
@@ -201,6 +216,10 @@ class YoloGru(YOLO):
                             scale = this_scale
                         else:
                             scale = torch.cat((scale, this_scale))
+                        if c_x_y is None:
+                            c_x_y = c_x_y_this[0]
+                        else:
+                            c_x_y = torch.cat((c_x_y, c_x_y_this[0]))
                 elif isinstance(mod, cr.Upsample):
                     this_block = self.forward_upsample(mod, this_block)
                 elif isinstance(mod, nn.Module):
@@ -215,7 +234,7 @@ class YoloGru(YOLO):
                         raise e
             block_record.append(this_block)
         if keep:
-            return output, original, scale
+            return output, original, scale, c_x_y
         else:
             return output
         
@@ -224,6 +243,7 @@ class YoloGru(YOLO):
         optimizer = o.Adam(self.parameters())
         
         running_loss = 0.0
+
         for epoch in range(parameters["epochs"]):
             last_frame = None
             # zero parameter gradients
@@ -231,48 +251,27 @@ class YoloGru(YOLO):
                 
                 X, label = one_data
                 optimizer.zero_grad()
-                # Transform labels to top_left bottom_right
-                formatted_label = torch.zeros_like(label)
-                formatted_label[0] = label[0]
-                formatted_label[1] = label[1]
-                formatted_label[2] = label[0] + label[2]
-                formatted_label[3] = label[1] + label[3]
-                formatted_label[4] = label[4]
-                formatted_label[5] = label[5]
-        
                 # Want: tx ty bw bh of the best predictor
                 # forward + backward + optimizer
-                outputs, originals, scales = self(X, keep=True)
+                outputs, originals, scales, c_x_y = self(X, keep=True)
                 originals = originals[0]  # t's
-                bbs, idx = self.bbs_from_detection(outputs, 0.5, 0.5, return_idx=True) # b's
-                bbs = bbs[0]
-                originals = torch.cat([originals[i].unsqueeze(0) for i in idx], dim=0)
-                # Here, we have the relevant ones!!!!
-                # This function should find the one and only relevant thing.
-                bb = self.most_similar_idx(formatted_label, bbs)
-                # Find index of this bb
-                idx = int(torch.prod(bbs == bb, 1).nonzero())
-                original = originals[idx]
-                scale = scales[idx]
+                # Transform labels to top_left bottom_right
+                formatted_label = torch.zeros_like(originals)
+                formatted_label[:, 0] = label[0] + label[2] / 2
+                formatted_label[:, 1] = label[1] + label[3] / 2
+                formatted_label[:, 2] = label[2]
+                formatted_label[:, 3] = label[3]
+                formatted_label[:, :4] /= scales.unsqueeze(1)
+                formatted_label[:, :2] -= c_x_y
+                formatted_label[:, :2] = torch.log((formatted_label[:, :2])/(1 - formatted_label[:, :2]))
+                formatted_label[:, 4] = 1
+                formatted_label[:, 5:] = -100*torch.eye(originals.size(1)-5)[int(label[4])]
 
-                this_frame = bb.clone()
-                this_frame[0:2] = original[0:2]
-                bb[0] = bb[0] + (bb[2] - bb[0]) / 2
-                bb[1] = bb[1] + (bb[3] - bb[1]) / 2
-                c_x = bb[0]/scale - torch.sigmoid(original[0])
-                c_y = bb[1]/scale - torch.sigmoid(original[1])
-                formatted_label[0] += label[2]/2
-                formatted_label[1] += label[3]/2
-                formatted_label[0] /= scale
-                formatted_label[1] /= scale
-                bx = formatted_label[0] - c_x
-                by = formatted_label[1] - c_y
-                eps = torch.Tensor([1e-5])
-                bx = min(1-eps, max(bx, eps))
-                by = min(1-eps, max(by, eps))
-                formatted_label[0] = torch.log((bx)/(1 - bx))
-                formatted_label[1] = torch.log((by)/(1 - by))
-                loss = criterion(formatted_label, this_frame, last_frame)
+                # Get t to b in case of width
+                # TODO is this correct?
+                originals[:, 2:4] = outputs[0, :, 2:4]
+        
+                loss = criterion(formatted_label, originals, last_frame)
                 loss.backward()
                 optimizer.step()
         
