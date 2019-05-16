@@ -1,0 +1,38 @@
+[
+    {
+        "name": "BlurBody",
+        "sep": "\t"
+    },
+    {
+        "name": "BlurCar2",
+        "sep": "\t"
+    },
+    {
+        "name": "Car1",
+        "sep": ","
+    },
+    {
+        "name": "Car4",
+        "sep": "\t"
+    },
+    {
+        "name": "CarScale",
+        "sep": "\t"
+    },
+    {
+        "name": "Human9",
+        "sep": ","
+    },
+    {
+        "name": "Human4",
+        "sep": ","
+    },
+    {
+        "name": "Human3",
+        "sep": ","
+    },
+    {
+        "name": "Bolt",
+        "sep": ","
+    }
+]
