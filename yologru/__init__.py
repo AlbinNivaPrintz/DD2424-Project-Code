@@ -270,10 +270,14 @@ class YoloGru(YOLO):
                 # Get t to b in case of width
                 # TODO is this correct?
                 originals[:, 2:4] = outputs[0, :, 2:4]
-        
                 loss = criterion(formatted_label, originals, last_frame)
                 loss.backward()
                 optimizer.step()
+
+                # Detach since do not want to calculate gradients through here
+                last_frame = originals.clone().detach()
+                for key in self.memory:
+                    self.memory[key].detach_()
         
                 # print stats
                 running_loss += loss.item()
