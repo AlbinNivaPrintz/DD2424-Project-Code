@@ -397,6 +397,9 @@ class YOLO(nn.Module):
 
     def draw_bbs(self, x, bbs):
         # TODO This probably draw stuff in a more clever way. Text placements and stuff.
+        if bbs is None:
+            print("Bounding boxes were None.")
+            return None
         img_draw = x.copy()
         true_w, true_h, _ = x.shape
         wfactor = true_h / self.im_size[0]

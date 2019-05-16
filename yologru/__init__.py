@@ -6,7 +6,6 @@ import torch.nn.functional as F
 import torch.optim as o
 import configreader as cr
 import numpy as np
-import cv2
 from bidict import bidict
 
 
@@ -240,16 +239,17 @@ class YoloGru(YOLO):
         
     def train_one_epoch(self, data):
         criterion = YoloLoss()
-        optimizer = o.Adam(self.parameters())
+        optimizer = o.Adam(self.parameters(), lr=1e-4)
+        optimizer.zero_grad()
         
         running_loss = 0.0
 
         last_frame = None
+        batch_loss = 0
         # zero parameter gradients
         for i, one_data in enumerate(data):
             
             X, label = one_data
-            optimizer.zero_grad()
             # Want: tx ty bw bh of the best predictor
             # forward + backward + optimizer
             outputs, originals, scales, c_x_y = self(X, keep=True)
@@ -269,11 +269,7 @@ class YoloGru(YOLO):
             # Get t to b in case of width
             originals[:, 2:4] = outputs[0, :, 2:4]
             loss = criterion(formatted_label, originals, last_frame)
-            loss.backward()
-            optimizer.step()
-            if i == 1:
-                print("Took two steps successfully")
-                quit()
+            batch_loss += loss
 
             # Detach since do not want to calculate gradients through here
             last_frame = originals.clone().detach()
@@ -283,6 +279,10 @@ class YoloGru(YOLO):
             # print stats
             running_loss += loss.item()
             if i % 10 == 9:
+                batch_loss.backward()
+                optimizer.step()
+                batch_loss = 0
+                optimizer.zero_grad()
                 print(running_loss/10)
                 running_loss = 0.0
                 
