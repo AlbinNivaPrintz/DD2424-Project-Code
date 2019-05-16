@@ -464,13 +464,13 @@ class YOLO(nn.Module):
         cap.release()
         
             
-    def detect_on_image(self, filename, outfilename="test.png", gpu=False):
+    def detect_on_image(self, filename, outfilename="test.png",class_thresh_hold=0.1, IOU_thresh_hold=0.8, gpu=False):
         X, img = data_from_image(filename)
         print("Performing forward pass.")
         with torch.no_grad():
             out = self.forward(X, gpu)
         print("Calculating bounding boxes.")
-        bbs = self.bbs_from_detection(out, 0.5, 0.5)
+        bbs = self.bbs_from_detection(out, class_thresh_hold, IOU_thresh_hold)
         print("Drawing boxes.")
         img_draw = self.draw_bbs(img, bbs[0])
         img_draw = cv2.cvtColor(img_draw, cv2.COLOR_RGB2BGR)
