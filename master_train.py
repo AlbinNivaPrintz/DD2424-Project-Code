@@ -18,7 +18,7 @@ if args.pretrained_model is None:
     net.load_weights("weights/yolov3.weights")
 else:
     print("Loading model from "+args.pretrained_model)
-    net = YoloGry.load(filename=args.pretrained_model)
+    net = YoloGru.load(filename=args.pretrained_model)
 
 print("Loading data meta data file.")
 with open("vtb_train.json", "r") as f:
