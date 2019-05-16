@@ -560,8 +560,6 @@ def cv_to_torch(cv_img, size=None):
     except ValueError as e:
         print("Images must be square!")
         raise e
-    # When everything done, release the capture
-    cap.release()
 
 def read_VTB_data(filename, label, sep=",", scaling=(1, 1)):
     with open(filename, "r") as f:
