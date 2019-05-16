@@ -238,52 +238,53 @@ class YoloGru(YOLO):
         else:
             return output
         
-    def train(self, data, parameters={"epochs": 2}):
+    def train_one_epoch(self, data):
         criterion = YoloLoss()
         optimizer = o.Adam(self.parameters())
         
         running_loss = 0.0
 
-        for epoch in range(parameters["epochs"]):
-            last_frame = None
-            # zero parameter gradients
-            for i, one_data in enumerate(data):
-                
-                X, label = one_data
-                optimizer.zero_grad()
-                # Want: tx ty bw bh of the best predictor
-                # forward + backward + optimizer
-                outputs, originals, scales, c_x_y = self(X, keep=True)
-                originals = originals[0]  # t's
-                # Transform labels to top_left bottom_right
-                formatted_label = torch.zeros_like(originals)
-                formatted_label[:, 0] = label[0] + label[2] / 2
-                formatted_label[:, 1] = label[1] + label[3] / 2
-                formatted_label[:, 2] = label[2]
-                formatted_label[:, 3] = label[3]
-                formatted_label[:, :4] /= scales.unsqueeze(1)
-                formatted_label[:, :2] -= c_x_y
-                formatted_label[:, :2] = torch.log((formatted_label[:, :2])/(1 - formatted_label[:, :2]))
-                formatted_label[:, 4] = 1
-                formatted_label[:, 5:] = -100*torch.eye(originals.size(1)-5)[int(label[4])]
+        last_frame = None
+        # zero parameter gradients
+        for i, one_data in enumerate(data):
+            
+            X, label = one_data
+            optimizer.zero_grad()
+            # Want: tx ty bw bh of the best predictor
+            # forward + backward + optimizer
+            outputs, originals, scales, c_x_y = self(X, keep=True)
+            originals = originals[0]  # t's
+            # Transform labels to top_left bottom_right
+            formatted_label = torch.zeros_like(originals)
+            formatted_label[:, 0] = label[0] + label[2] / 2
+            formatted_label[:, 1] = label[1] + label[3] / 2
+            formatted_label[:, 2] = label[2]
+            formatted_label[:, 3] = label[3]
+            formatted_label[:, :4] /= scales.unsqueeze(1)
+            formatted_label[:, :2] -= c_x_y
+            formatted_label[:, :2] = torch.log((formatted_label[:, :2])/(1 - formatted_label[:, :2]))
+            formatted_label[:, 4] = 1
+            formatted_label[:, 5:] = -100*torch.eye(originals.size(1)-5)[int(label[4])]
 
-                # Get t to b in case of width
-                # TODO is this correct?
-                originals[:, 2:4] = outputs[0, :, 2:4]
-                loss = criterion(formatted_label, originals, last_frame)
-                loss.backward()
-                optimizer.step()
+            # Get t to b in case of width
+            originals[:, 2:4] = outputs[0, :, 2:4]
+            loss = criterion(formatted_label, originals, last_frame)
+            loss.backward()
+            optimizer.step()
+            if i == 1:
+                print("Took two steps successfully")
+                quit()
 
-                # Detach since do not want to calculate gradients through here
-                last_frame = originals.clone().detach()
-                for key in self.memory:
-                    self.memory[key].detach_()
-        
-                # print stats
-                running_loss += loss.item()
-                if i % 10 == 9:
-                    print(running_loss/10)
-                    running_loss = 0.0
+            # Detach since do not want to calculate gradients through here
+            last_frame = originals.clone().detach()
+            for key in self.memory:
+                self.memory[key].detach_()
+    
+            # print stats
+            running_loss += loss.item()
+            if i % 10 == 9:
+                print(running_loss/10)
+                running_loss = 0.0
                 
         print("Done")
 

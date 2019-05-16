@@ -535,8 +535,6 @@ def data_from_path(path, size=416, suffix=".png", bbfilename=None, bbclass=None,
         else:
             out["X"][i] = tens
         out["ims"][i] = im
-        if i % 10 == 9:
-            print("Loaded {} images.".format(i+1))
     if bbfilename is not None:
         w, h, _ = out["ims"][0].shape
         # FIXME Hardcoded image size!!!!

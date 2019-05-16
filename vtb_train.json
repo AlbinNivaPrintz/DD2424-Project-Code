@@ -1,38 +1,47 @@
 [
     {
         "name": "BlurBody",
-        "sep": "\t"
+        "sep": "\t",
+        "class": 0
     },
     {
         "name": "BlurCar2",
-        "sep": "\t"
+        "sep": "\t",
+        "class": 2
     },
     {
         "name": "Car1",
-        "sep": ","
+        "sep": ",",
+        "class": 2
     },
     {
         "name": "Car4",
-        "sep": "\t"
+        "sep": "\t",
+        "class": 2
     },
     {
         "name": "CarScale",
-        "sep": "\t"
+        "sep": "\t",
+        "class": 2
     },
     {
         "name": "Human9",
-        "sep": ","
+        "sep": ",",
+        "class": 0
     },
     {
         "name": "Human4",
-        "sep": ","
+        "sep": ",",
+        "class": 0
     },
     {
         "name": "Human3",
-        "sep": ","
+        "sep": ",",
+        "class": 0
     },
     {
         "name": "Bolt",
-        "sep": ","
+        "sep": ",",
+        "class": 0
     }
 ]
