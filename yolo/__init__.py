@@ -312,11 +312,12 @@ class YOLO(nn.Module):
         c_x_y = torch.from_numpy(np.tile(c_x_y, (n_batch, 1, 1, 1))).view(
             (n_batch, grid_size*grid_size*len(anchors), 2)
         )
+        c_x_y = c_x_y.float().cuda()
         if keep:
             original = formatted.clone()
         else:
             original = None
-        formatted[:, :, 0:2] = torch.sigmoid(formatted[:, :, 0:2]) + c_x_y.float()
+        formatted[:, :, 0:2] = torch.sigmoid(formatted[:, :, 0:2]) + c_x_y
         formatted[:, :, 4] = torch.sigmoid(formatted[:, :, 4])
         formatted[:, :, 2:4] = expanded_anchors * torch.exp(formatted[:, :, 2:4])
         formatted[:, :, 5:] = torch.sigmoid(formatted[:, :, 5:])

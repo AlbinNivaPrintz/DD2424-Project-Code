@@ -5,29 +5,37 @@ import torch
 import json
 import argparse
 
+def log(item):
+    with open("training.log", "a") as f:
+        f.write(str(item)+"\n")
+
 parser = argparse.ArgumentParser()
 parser.add_argument("--epochs", type=int, default=1)
 parser.add_argument("--pretrained_model")
 args = parser.parse_args()
 
+torch.set_default_tensor_type('torch.cuda.FloatTensor')
+
 if args.pretrained_model is None:
-    print("Loading network architecture from config.")
+    log("Loading network architecture from config.")
     net = YoloGru("conf/yolov3-gru.cfg")
 
-    print("Loading weights.")
+    log("Loading weights.")
     net.load_weights("weights/yolov3.weights")
 else:
-    print("Loading model from "+args.pretrained_model)
+    log("Loading model from "+args.pretrained_model)
     net = YoloGru.load(filename=args.pretrained_model)
 
-print("Loading data meta data file.")
+net.to(torch.device("cuda:0"))
+
+log("Loading data meta data file.")
 with open("vtb_train.json", "r") as f:
     meta = json.load(f)
 
-print("Begin training")
+log("Begin training")
 for i in range(args.epochs):
     for data_dict in meta:
-        print("epoch {}, sequence {}".format(i+1, data_dict["name"]))
+        log("epoch {}, sequence {}".format(i+1, data_dict["name"]))
         # Should do training here 
         data_dir = "data/" + data_dict["name"]
         truth = yolo.data_from_path(
@@ -39,6 +47,7 @@ for i in range(args.epochs):
                 )
         X_list = []
         X = truth["X"]
+        X.cuda()
         for j in range(X.size(0)):
             X_list.append(X[j:j+1])
         data = zip(X_list, truth["labels"])

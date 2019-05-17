@@ -283,10 +283,10 @@ class YoloGru(YOLO):
                 optimizer.step()
                 batch_loss = 0
                 optimizer.zero_grad()
-                print(running_loss/10)
+                log(running_loss/10)
                 running_loss = 0.0
                 
-        print("Done")
+        log("Done")
 
     def most_similar_idx(self, label, bbs):
         bbs = bbs[bbs[:, 4] == label[4], :]
@@ -309,3 +309,6 @@ class YoloGru(YOLO):
         net.train_yolo = False
         return net
         
+def log(item):
+    with open("training.log", "a") as f:
+        f.write(str(item)+"\n")
