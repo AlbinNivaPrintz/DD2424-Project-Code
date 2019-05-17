@@ -482,8 +482,16 @@ class YOLO(nn.Module):
     
     def detect_on_images(self, filename, outdir="test", suffix="png", gpu=False):
         data = data_from_path(filename, suffix=suffix)
+        out = None
         with torch.no_grad():
-            out = self.forward(data["X"], gpu)
+            for i in range(data["X"].size(0)):
+                X = data["X"][i].unsqueeze(0)
+                if i % 10 == 9: print(i)
+                out_one = self.forward(X, gpu)
+                if out is None:
+                    out = out_one
+                else:
+                    out = torch.cat((out, out_one), dim=0)
         print("Calculating bounding boxes.")
         bbs = self.bbs_from_detection(out, 0.5, 0.5)
         print("Drawing boxes.")

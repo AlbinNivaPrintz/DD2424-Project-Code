@@ -115,7 +115,7 @@ class YoloLoss(nn.Module):
         nan_in_one = torch.isnan(labels[:, 1])
         nan_in_any = nan_in_one + nan_in_zero > 0
         labels[nan_in_any, :4] = this_frame[nan_in_any, :4]
-        labels[nan_in_any, 4] = -100
+        labels[nan_in_any, 4] = -20
         labels[nan_in_any, 5:] = this_frame[nan_in_any, 5:]
         ## Last minute transform to probabilities of objectness and class probabilities
         labels[:, 4:] = torch.sigmoid(labels[:, 4:])
@@ -225,7 +225,7 @@ class YoloGru(YOLO):
                     try:
                         if isinstance(mod, ConvGru2d):
                             this_block = mod(this_block, self.memory[mod.key])
-                            self.memory[mod.key] = this_block
+                            self.memory[mod.key] = this_block.detach()
                         else:
                             this_block = mod(this_block)
                     except RuntimeError as e:
@@ -264,7 +264,7 @@ class YoloGru(YOLO):
             formatted_label[:, :2] -= c_x_y
             formatted_label[:, :2] = torch.log((formatted_label[:, :2])/(1 - formatted_label[:, :2]))
             formatted_label[:, 4] = 1
-            formatted_label[:, 5:] = -100*torch.eye(originals.size(1)-5)[int(label[4])]
+            formatted_label[:, 5:] = torch.where(torch.eye(originals.size(1)-5)[int(label[4])], 20, -20)
 
             # Get t to b in case of width
             originals[:, 2:4] = outputs[0, :, 2:4]
