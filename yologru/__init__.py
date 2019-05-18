@@ -102,8 +102,10 @@ class ConvGru2d(nn.Module):
         
        
 class YoloLoss(nn.Module):
-    def __init__(self):
+    def __init__(self, params={"lr":1e-3, "len_seq": 20, "l_coord": 5, "l_noobj": 0.5}):
         super(YoloLoss, self).__init__()
+        self.l_coord = params["l_coord"]
+        self.l_noobj = params["l_noobj"]
         
     def forward(self, labels, this_frame, last_frame=None):
         if last_frame is None:
@@ -125,6 +127,8 @@ class YoloLoss(nn.Module):
         frame_loss[:, 2:4] = (torch.log(labels[:, 2:4] / this_frame[:, 2:4]))**2
         ## Everything else gets binary cross entropy loss
         frame_loss[:, 4:] = labels[:, 4:]*torch.log(labels[:, 4:]/this_frame[:, 4:]) + (1-labels[:, 4:])*torch.log((1-labels[:, 4:])/(1-this_frame[:, 4:]))
+        frame_loss[:, :4] *= self.l_coord
+        frame_loss[nan_in_any, 4] *= self.l_noobj
         frame_loss_sum = torch.sum(frame_loss)
 
         # Smootheness error
@@ -237,9 +241,9 @@ class YoloGru(YOLO):
         else:
             return output
         
-    def train_one_epoch(self, data, params={"lr":1e-3, "len_seq": 20}):
+    def train_one_epoch(self, data, params={"lr":1e-3, "len_seq": 20, "l_coord": 5, "l_noobj": 0.5}):
         import random
-        criterion = YoloLoss()
+        criterion = YoloLoss(params)
         optimizer = o.Adam(self.parameters(), lr=params["lr"])
         optimizer.zero_grad()
         
