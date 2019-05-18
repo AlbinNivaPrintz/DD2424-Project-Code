@@ -34,6 +34,8 @@ with open("vtb_train.json", "r") as f:
 
 log("Begin training")
 for i in range(args.epochs):
+    import random
+    random.shuffle(meta)
     for data_dict in meta:
         log("epoch {}, sequence {}".format(i+1, data_dict["name"]))
         # Should do training here 
@@ -50,7 +52,7 @@ for i in range(args.epochs):
         X.cuda()
         for j in range(X.size(0)):
             X_list.append(X[j:j+1])
-        data = zip(X_list, truth["labels"])
+        data = list(zip(X_list, truth["labels"]))
         net.train_one_epoch(data)
     # Save one model per epoch (just to be safe)
     net.dump(filename="model_{}.pkl".format(i))

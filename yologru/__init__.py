@@ -115,7 +115,7 @@ class YoloLoss(nn.Module):
         nan_in_one = torch.isnan(labels[:, 1])
         nan_in_any = nan_in_one + nan_in_zero > 0
         labels[nan_in_any, :4] = this_frame[nan_in_any, :4]
-        labels[nan_in_any, 4] = -20
+        labels[nan_in_any, 4] = -10
         labels[nan_in_any, 5:] = this_frame[nan_in_any, 5:]
         ## Last minute transform to probabilities of objectness and class probabilities
         labels[:, 4:] = torch.sigmoid(labels[:, 4:])
@@ -237,54 +237,69 @@ class YoloGru(YOLO):
         else:
             return output
         
-    def train_one_epoch(self, data):
+    def train_one_epoch(self, data, params={"lr":1e-3, "len_seq": 20}):
+        import random
         criterion = YoloLoss()
-        optimizer = o.Adam(self.parameters(), lr=1e-4)
+        optimizer = o.Adam(self.parameters(), lr=params["lr"])
         optimizer.zero_grad()
         
         running_loss = 0.0
 
-        last_frame = None
-        batch_loss = 0
-        # zero parameter gradients
-        for i, one_data in enumerate(data):
-            
-            X, label = one_data
-            # Want: tx ty bw bh of the best predictor
-            # forward + backward + optimizer
-            outputs, originals, scales, c_x_y = self(X, keep=True)
-            originals = originals[0]  # t's
-            # Transform labels to top_left bottom_right
-            formatted_label = torch.zeros_like(originals)
-            formatted_label[:, 0] = label[0] + label[2] / 2
-            formatted_label[:, 1] = label[1] + label[3] / 2
-            formatted_label[:, 2] = label[2]
-            formatted_label[:, 3] = label[3]
-            formatted_label[:, :4] /= scales.unsqueeze(1)
-            formatted_label[:, :2] -= c_x_y
-            formatted_label[:, :2] = torch.log((formatted_label[:, :2])/(1 - formatted_label[:, :2]))
-            formatted_label[:, 4] = 1
-            formatted_label[:, 5:] = torch.where(torch.eye(originals.size(1)-5)[int(label[4])], 20, -20)
+        batched = [data[i:i + params["len_seq"]] for i in range(0, len(data), params["len_seq"])]
+        random.shuffle(batched)
 
-            # Get t to b in case of width
-            originals[:, 2:4] = outputs[0, :, 2:4]
-            loss = criterion(formatted_label, originals, last_frame)
-            batch_loss += loss
+        for batch in batched:
+            last_frame = None
+            batch_loss = 0
+            # zero parameter gradients
+            for i, one_data in enumerate(batch):
+                
+                X, label = one_data
+                # Want: tx ty bw bh of the best predictor
+                # forward + backward + optimizer
+                outputs, originals, scales, c_x_y = self(X, keep=True)
+                originals = originals[0]  # t's
+                # Transform labels to top_left bottom_right
+                formatted_label = torch.zeros_like(originals)
+                formatted_label[:, 0] = label[0] + label[2] / 2
+                formatted_label[:, 1] = label[1] + label[3] / 2
+                formatted_label[:, 2] = label[2]
+                formatted_label[:, 3] = label[3]
+                formatted_label[:, :4] /= scales.unsqueeze(1)
+                formatted_label[:, :2] -= c_x_y
+                formatted_label[:, :2] = torch.log((formatted_label[:, :2])/(1 - formatted_label[:, :2]))
+                # These are going to be sigmoided later
+                formatted_label[:, 4] = 10
+                formatted_label[:, 5:] = torch.where(
+                        torch.eye(originals.size(1)-5)[int(label[4])] == 1,
+                        torch.ones(originals.size(1)-5)*10,
+                        -torch.ones(originals.size(1)-5)*10)
 
-            # Detach since do not want to calculate gradients through here
-            last_frame = originals.clone().detach()
-            for key in self.memory:
-                self.memory[key].detach_()
-    
-            # print stats
-            running_loss += loss.item()
-            if i % 10 == 9:
+                # Get t to b in case of width
+                originals[:, 2:4] = outputs[0, :, 2:4]
+                loss = criterion(formatted_label, originals, last_frame)
+                batch_loss += loss
+
+                # Detach since do not want to calculate gradients through here
+                last_frame = originals.clone().detach()
+                for key in self.memory:
+                    self.memory[key].detach_()
+        
+                # print stats and update
+                running_loss += loss.item()
+                if i % 10 == 9:
+                    batch_loss.backward()
+                    optimizer.step()
+                    batch_loss = 0
+                    optimizer.zero_grad()
+                    log(running_loss/10)
+                    running_loss = 0.0
+            if batch_loss != 0:
+                # Perhaps missed some since only every tenth
                 batch_loss.backward()
                 optimizer.step()
                 batch_loss = 0
                 optimizer.zero_grad()
-                log(running_loss/10)
-                running_loss = 0.0
                 
         log("Done")
 
