@@ -312,7 +312,9 @@ class YOLO(nn.Module):
         c_x_y = torch.from_numpy(np.tile(c_x_y, (n_batch, 1, 1, 1))).view(
             (n_batch, grid_size*grid_size*len(anchors), 2)
         )
-        c_x_y = c_x_y.float().cuda()
+        c_x_y = c_x_y.float()
+        if torch.cuda.is_available():
+            c_x_y = c_x_y.cuda()
         if keep:
             original = formatted.clone()
         else:
