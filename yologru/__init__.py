@@ -3,7 +3,6 @@ from yolo import YOLO
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import torch.optim as o
 import configreader as cr
 import numpy as np
 from bidict import bidict
@@ -241,10 +240,9 @@ class YoloGru(YOLO):
         else:
             return output
         
-    def train_one_epoch(self, data, params={"lr":1e-3, "len_seq": 20, "l_coord": 5, "l_noobj": 0.5}):
+    def train_one_epoch(self, data, optimizer, params={"len_seq": 20, "l_coord": 5, "l_noobj": 0.5}):
         import random
         criterion = YoloLoss(params)
-        optimizer = o.Adam(self.parameters(), lr=params["lr"])
         optimizer.zero_grad()
         
         running_loss = 0.0

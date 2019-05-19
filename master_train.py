@@ -2,6 +2,7 @@ import yologru
 from yologru import YoloGru
 import yolo
 import torch
+import torch.optim as o
 import json
 import argparse
 
@@ -31,6 +32,8 @@ net.to(torch.device("cuda:0"))
 log("Loading data meta data file.")
 with open("vtb_train.json", "r") as f:
     meta = json.load(f)
+    
+optimizer = o.Adam(net.parameters(), lr=1e-3)
 
 log("Begin training")
 for i in range(args.epochs):
@@ -53,7 +56,7 @@ for i in range(args.epochs):
         for j in range(X.size(0)):
             X_list.append(X[j:j+1])
         data = list(zip(X_list, truth["labels"]))
-        net.train_one_epoch(data)
+        net.train_one_epoch(data, optimizer)
     # Save one model per epoch (just to be safe)
     net.dump(filename="model_{}.pkl".format(i))
 
